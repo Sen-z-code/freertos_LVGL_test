@@ -23,6 +23,61 @@
 static uint16_t g_width = ST7789_WIDTH_PORTRAIT;
 static uint16_t g_height = ST7789_HEIGHT_PORTRAIT;
 
+static void st7789_select(void);
+static void st7789_unselect(void);
+
+// 按 RGB565 缓冲连续写像素，内部做高低字节重排后通过 SPI 发送。
+static void st7789_stream_color_buffer(const uint16_t *pixels, uint32_t pixel_count)
+{
+  uint8_t burst[ST7789_BURST_PIXELS * 2U];
+  uint16_t chunk;
+  uint16_t i;
+  uint32_t remaining;
+
+  HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_SET);
+  st7789_select();
+
+  remaining = pixel_count;
+  while (remaining > 0U) {
+    chunk = (remaining > ST7789_BURST_PIXELS) ? ST7789_BURST_PIXELS : (uint16_t)remaining;
+    for (i = 0U; i < chunk; i++) {
+      burst[2U * i] = (uint8_t)(pixels[i] >> 8);
+      burst[(2U * i) + 1U] = (uint8_t)(pixels[i] & 0xFFU);
+    }
+    (void)HAL_SPI_Transmit(&hspi1, burst, (uint16_t)(chunk * 2U), HAL_MAX_DELAY);
+    pixels += chunk;
+    remaining -= chunk;
+  }
+
+  st7789_unselect();
+}
+
+// 连续写入同一颜色像素块，供全屏填充和局部矩形复用。
+static void st7789_stream_solid_color(uint32_t pixel_count, uint16_t color)
+{
+  uint8_t burst[ST7789_BURST_PIXELS * 2U];
+  uint32_t i;
+  uint32_t remaining;
+  uint16_t chunk;
+
+  for (i = 0U; i < ST7789_BURST_PIXELS; i++) {
+    burst[2U * i] = (uint8_t)(color >> 8);
+    burst[(2U * i) + 1U] = (uint8_t)(color & 0xFFU);
+  }
+
+  HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_SET);
+  st7789_select();
+
+  remaining = pixel_count;
+  while (remaining > 0U) {
+    chunk = (remaining > ST7789_BURST_PIXELS) ? ST7789_BURST_PIXELS : (uint16_t)remaining;
+    (void)HAL_SPI_Transmit(&hspi1, burst, (uint16_t)(chunk * 2U), HAL_MAX_DELAY);
+    remaining -= chunk;
+  }
+
+  st7789_unselect();
+}
+
 /* 拉低 CS，选中 LCD，从机开始接收本次 SPI 传输。 */
 static void st7789_select(void)
 {
@@ -199,32 +254,78 @@ void ST7789_Init(void)
  */
 void ST7789_FillColor(uint16_t color)
 {
-  uint8_t burst[ST7789_BURST_PIXELS * 2U];
   uint32_t total_pixels;
-  uint32_t remaining;
-  uint32_t i;
-  uint16_t chunk;
-
-  /* Prebuild a small repeated RGB565 chunk to reduce CPU overhead. */
-  for (i = 0U; i < ST7789_BURST_PIXELS; i++) {
-    burst[2U * i] = (uint8_t)(color >> 8);
-    burst[(2U * i) + 1U] = (uint8_t)(color & 0xFFU);
-  }
 
   /* Target whole frame. */
   st7789_set_window(0U, 0U, (uint16_t)(g_width - 1U), (uint16_t)(g_height - 1U));
 
-  HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_SET);
-  st7789_select();
-
-  /* Stream frame data in fixed-size bursts over SPI. */
   total_pixels = (uint32_t)g_width * (uint32_t)g_height;
-  remaining = total_pixels;
-  while (remaining > 0U) {
-    chunk = (remaining > ST7789_BURST_PIXELS) ? ST7789_BURST_PIXELS : (uint16_t)remaining;
-    (void)HAL_SPI_Transmit(&hspi1, burst, (uint16_t)(chunk * 2U), HAL_MAX_DELAY);
-    remaining -= chunk;
+  st7789_stream_solid_color(total_pixels, color);
+}
+
+void ST7789_FillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color)
+{
+  uint16_t x1;
+  uint16_t y1;
+  uint32_t pixels;
+
+  if ((w == 0U) || (h == 0U)) {
+    return;
   }
 
-  st7789_unselect();
+  if ((x >= g_width) || (y >= g_height)) {
+    return;
+  }
+
+  x1 = (uint16_t)(x + w - 1U);
+  y1 = (uint16_t)(y + h - 1U);
+
+  if (x1 >= g_width) {
+    x1 = (uint16_t)(g_width - 1U);
+  }
+  if (y1 >= g_height) {
+    y1 = (uint16_t)(g_height - 1U);
+  }
+
+  st7789_set_window(x, y, x1, y1);
+  pixels = (uint32_t)(x1 - x + 1U) * (uint32_t)(y1 - y + 1U);
+  st7789_stream_solid_color(pixels, color);
+}
+
+bool ST7789_WritePixels(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *pixels)
+{
+  uint16_t x1;
+  uint16_t y1;
+  uint32_t count;
+
+  if ((pixels == NULL) || (w == 0U) || (h == 0U)) {
+    return false;
+  }
+
+  if ((x >= g_width) || (y >= g_height)) {
+    return false;
+  }
+
+  x1 = (uint16_t)(x + w - 1U);
+  y1 = (uint16_t)(y + h - 1U);
+
+  // LVGL flush 正常不会越界；这里做保护，避免错误参数破坏显示。
+  if ((x1 >= g_width) || (y1 >= g_height)) {
+    return false;
+  }
+
+  st7789_set_window(x, y, x1, y1);
+  count = (uint32_t)w * (uint32_t)h;
+  st7789_stream_color_buffer(pixels, count);
+  return true;
+}
+
+uint16_t ST7789_GetWidth(void)
+{
+  return g_width;
+}
+
+uint16_t ST7789_GetHeight(void)
+{
+  return g_height;
 }

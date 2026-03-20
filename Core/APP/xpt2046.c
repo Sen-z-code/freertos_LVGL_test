@@ -6,12 +6,15 @@
 #define XPT2046_CMD_READ_X 0xD0U
 #define XPT2046_CMD_READ_Y 0x90U
 #define XPT2046_SAMPLES    5U
+#define XPT2046_STABLE_DELTA 25U
 
 /* 运行时校准参数：把原始 ADC 值线性映射到屏幕像素坐标。 */
 static uint16_t g_x_min = XPT2046_RAW_X_MIN;
 static uint16_t g_x_max = XPT2046_RAW_X_MAX;
 static uint16_t g_y_min = XPT2046_RAW_Y_MIN;
 static uint16_t g_y_max = XPT2046_RAW_Y_MAX;
+static uint16_t g_last_x = (XPT2046_LCD_WIDTH / 2U);
+static uint16_t g_last_y = (XPT2046_LCD_HEIGHT / 2U);
 
 /* 片选拉低，开始一次触摸 SPI 事务。 */
 static void xpt2046_select(void)
@@ -81,6 +84,12 @@ static uint16_t xpt2046_clamp_u16(uint16_t v, uint16_t min_v, uint16_t max_v)
     return max_v;
   }
   return v;
+}
+
+// 计算无符号差值的绝对值，用于判断两次采样稳定性。
+static uint16_t xpt2046_abs_diff_u16(uint16_t a, uint16_t b)
+{
+  return (a >= b) ? (uint16_t)(a - b) : (uint16_t)(b - a);
 }
 
 /* 初始化时保持触摸芯片不被选中，避免误通信。 */
@@ -167,11 +176,61 @@ bool XPT2046_ReadPoint(uint16_t *x, uint16_t *y)
 
   if (x != NULL) {
     *x = (uint16_t)px;
+    g_last_x = (uint16_t)px;
   }
   if (y != NULL) {
     *y = (uint16_t)py;
+    g_last_y = (uint16_t)py;
   }
 
+  return true;
+}
+
+bool XPT2046_ReadState(XPT2046_State_t *state)
+{
+  uint16_t x1;
+  uint16_t y1;
+  uint16_t x2;
+  uint16_t y2;
+  uint16_t x_final;
+  uint16_t y_final;
+
+  if (state == NULL) {
+    return false;
+  }
+
+  state->pressed = false;
+  state->x = g_last_x;
+  state->y = g_last_y;
+
+  if (!XPT2046_IsTouched()) {
+    return true;
+  }
+
+  if (!XPT2046_ReadPoint(&x1, &y1)) {
+    return true;
+  }
+
+  if (!XPT2046_ReadPoint(&x2, &y2)) {
+    x2 = x1;
+    y2 = y1;
+  }
+
+  // 两次采样接近则取平均；差异较大说明抖动，优先使用较新的第二次值。
+  if ((xpt2046_abs_diff_u16(x1, x2) <= XPT2046_STABLE_DELTA) &&
+      (xpt2046_abs_diff_u16(y1, y2) <= XPT2046_STABLE_DELTA)) {
+    x_final = (uint16_t)(((uint32_t)x1 + (uint32_t)x2) / 2U);
+    y_final = (uint16_t)(((uint32_t)y1 + (uint32_t)y2) / 2U);
+  } else {
+    x_final = x2;
+    y_final = y2;
+  }
+
+  g_last_x = x_final;
+  g_last_y = y_final;
+  state->pressed = true;
+  state->x = x_final;
+  state->y = y_final;
   return true;
 }
 
