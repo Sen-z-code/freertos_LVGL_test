@@ -141,7 +141,7 @@ static void st7789_set_rotation_landscape(void)
 {
   /*
    * MADCTL(0x36) 控制显示方向与颜色顺序。
-   * 0x68 是当前屏子可用的横屏参数之一（MY/MX/MV 与 BGR 组合）。
+   * 0x68 是当前屏子常见可用的横屏参数之一（MX/MV 与 BGR 组合）。
    * 若出现上下颠倒、左右镜像、颜色红蓝互换，优先改这里。
    */
   uint8_t madctl = 0x68U;
@@ -235,11 +235,11 @@ void ST7789_Init(void)
   st7789_set_rotation_landscape();
 
   /*
-   * 0x21: 显示反相 ON（很多面板观感更好，可按需关闭）
+   * 0x20: 显示反相 OFF（与 LVGL 默认颜色语义一致）
    * 0x13: Normal Display Mode
    * 0x29: Display ON
    */
-  st7789_write_cmd(0x21U);
+  st7789_write_cmd(0x20U);
   st7789_write_cmd(0x13U);
   st7789_write_cmd(0x29U);
   HAL_Delay(20U);

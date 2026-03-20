@@ -37,6 +37,59 @@ add_executable(${CMAKE_PROJECT_NAME})
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 
+# LVGL sources (auto-collect to avoid maintaining hundreds of file paths manually)
+file(GLOB_RECURSE LVGL_SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/src/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/porting/*.c
+)
+
+# Exclude desktop/host-specific and test/demo sources for STM32 bare-metal build
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/demos/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/debugging/test/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/windows/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/x11/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/wayland/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/opengles/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/sdl/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/qnx/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/uefi/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/libinput/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/evdev/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/nuttx/")
+
+# Further trim LVGL for STM32 + SW rendering + custom ST7789/XPT2046 ports
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/drivers/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/eve/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/vg_lite/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/nanovg/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/nema_gfx/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/nxp/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/opengles/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/sdl/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/dma2d/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/draw/espressif/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/FT800-FT813/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/ffmpeg/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/freetype/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/gltf/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/gstreamer/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/nanovg/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/rlottie/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/svg/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/tiny_ttf/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/vg_lite_driver/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/libjpeg_turbo/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/libpng/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/libwebp/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/libs/lodepng/")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/osal/lv_windows\\.c$")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/osal/lv_sdl2\\.c$")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/osal/lv_pthread\\.c$")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/osal/lv_rtthread\\.c$")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/osal/lv_linux\\.c$")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/osal/lv_mqx\\.c$")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX "/lvgl/src/osal/lv_cmsis_rtos2\\.c$")
+
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
@@ -48,12 +101,16 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/APP/LVGLTask.c
     Core/APP/st7789.c
     Core/APP/xpt2046.c
+    ${LVGL_SOURCES}
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # User custom include paths (persistent across CubeMX re-generation)
     Core/APP
+    lvgl
+    lvgl/src
+    lvgl/porting
 )
 
 # Add project symbols (macros)

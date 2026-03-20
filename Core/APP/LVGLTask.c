@@ -1,101 +1,230 @@
 #include "LVGLTask.h"
 #include "xpt2046.h"
 
-#define DEMO_BG_COLOR    ST7789_COLOR_BLACK
-#define DEMO_BAR_HEIGHT  30U
-#define DEMO_BTN_COUNT   6U
-#define DEMO_PEN_SIZE    5U
+#define LVGL_LOOP_MS 5U
 
-// 绘制顶部工具栏：前5个按钮选画笔颜色，最后1个按钮用于清屏。
-static void Demo_DrawToolbar(uint16_t width, uint16_t selected_pen)
+static lv_obj_t * g_counter_label;
+static lv_obj_t * g_status_label;
+static lv_obj_t * g_touch_label;
+static lv_obj_t * g_arc;
+static lv_obj_t * g_touch_dot;
+static uint32_t g_touch_count;
+
+// 对象创建失败时闪红黑，方便上板快速定位。
+static void lvgl_panic_blink(void)
 {
-    uint16_t btn_w = (uint16_t)(width / DEMO_BTN_COUNT);
-    uint16_t x;
-    uint16_t i;
-    uint16_t colors[5] = {
-        ST7789_COLOR_WHITE,
-        ST7789_COLOR_RED,
-        ST7789_COLOR_GREEN,
-        ST7789_COLOR_BLUE,
-        ST7789_COLOR_BLACK
-    };
+  for (;;) {
+    ST7789_FillColor(ST7789_COLOR_RED);
+    vTaskDelay(pdMS_TO_TICKS(250));
+    ST7789_FillColor(ST7789_COLOR_BLACK);
+    vTaskDelay(pdMS_TO_TICKS(250));
+  }
+}
 
-    for (i = 0U; i < 5U; i++) {
-        x = (uint16_t)(i * btn_w);
-        ST7789_FillRect(x, 0U, btn_w, DEMO_BAR_HEIGHT, colors[i]);
-
-        // 被选中的颜色按钮画一个边框，便于识别当前画笔。
-        if (selected_pen == colors[i]) {
-            uint16_t border = (colors[i] == ST7789_COLOR_WHITE) ? ST7789_COLOR_BLACK : ST7789_COLOR_WHITE;
-            ST7789_FillRect(x, 0U, btn_w, 2U, border);
-            ST7789_FillRect(x, (uint16_t)(DEMO_BAR_HEIGHT - 2U), btn_w, 2U, border);
-            ST7789_FillRect(x, 0U, 2U, DEMO_BAR_HEIGHT, border);
-            ST7789_FillRect((uint16_t)(x + btn_w - 2U), 0U, 2U, DEMO_BAR_HEIGHT, border);
-        }
-    }
-
-    // 最后一个按钮：黄色表示“清屏”。
-    x = (uint16_t)(5U * btn_w);
-    ST7789_FillRect(x, 0U, (uint16_t)(width - x), DEMO_BAR_HEIGHT, 0xFFE0U);
+// 点击按钮后更新计数，验证触摸输入链路。
+static void on_btn_click(lv_event_t * e)
+{
+  LV_UNUSED(e);
+  g_touch_count++;
+  if (g_counter_label != NULL) {
+    lv_label_set_text_fmt(g_counter_label, "Touch count: %lu", (unsigned long)g_touch_count);
+  }
 }
 
 void StartLVGLTask(void *argument)
 {
-    XPT2046_State_t ts;
-    uint16_t width;
-    uint16_t height;
-    uint16_t btn_w;
-    uint16_t pen_color = ST7789_COLOR_WHITE;
+  lv_obj_t * scr;
+  lv_obj_t * panel;
+  lv_obj_t * title;
+  lv_obj_t * hint;
+  lv_obj_t * btn;
+  lv_obj_t * btn_text;
+  lv_obj_t * arc_title;
+  lv_obj_t * tip;
+  XPT2046_State_t ts;
+  int32_t arc_value = 0;
+  int32_t arc_dir = 1;
+  uint32_t tick = 0U;
 
-    (void)argument;
+  (void)argument;
 
-    ST7789_Init();  // 初始化 LCD
-    XPT2046_Init();  // 初始化触摸控制器
+  // 阶段1：先做底层显示自检，确认 ST7789 刷新链路稳定。
+  ST7789_Init();
+  ST7789_FillColor(ST7789_COLOR_RED);
+  vTaskDelay(pdMS_TO_TICKS(300));
+  ST7789_FillColor(ST7789_COLOR_GREEN);
+  vTaskDelay(pdMS_TO_TICKS(300));
+  ST7789_FillColor(ST7789_COLOR_BLUE);
+  vTaskDelay(pdMS_TO_TICKS(300));
+  ST7789_FillColor(ST7789_COLOR_BLACK);
+  vTaskDelay(pdMS_TO_TICKS(300));
 
-    width = ST7789_GetWidth();
-    height = ST7789_GetHeight();
-    btn_w = (uint16_t)(width / DEMO_BTN_COUNT);
+  lv_init();
+  lv_port_display_init();
+  lv_port_indev_init();
 
-    ST7789_FillColor(DEMO_BG_COLOR);
-    Demo_DrawToolbar(width, pen_color);
+  // 阶段2：创建完整体验页面（状态面板 + 动态环 + 触摸反馈）。
+  scr = lv_screen_active();
+  lv_obj_set_style_bg_color(scr, lv_color_hex(0x0D121F), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
-    for (;;) {
-        if (XPT2046_ReadState(&ts) && ts.pressed) {
-            ST7789_SetBacklight(100U);
+  panel = lv_obj_create(scr);
+  if (panel == NULL) {
+    lvgl_panic_blink();
+  }
+  lv_obj_set_size(panel, 308, 212);
+  lv_obj_align(panel, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_bg_color(panel, lv_color_hex(0x151E32), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_color(panel, lv_color_hex(0x2A3E68), LV_PART_MAIN);
+  lv_obj_set_style_border_width(panel, 2, LV_PART_MAIN);
+  lv_obj_set_style_radius(panel, 12, LV_PART_MAIN);
 
-            if (ts.y < DEMO_BAR_HEIGHT) {
-                uint8_t idx = (uint8_t)(ts.x / btn_w);
+  title = lv_label_create(panel);
+  if (title == NULL) {
+    lvgl_panic_blink();
+  }
+  lv_label_set_text(title, "LVGL Experience Panel");
+  lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
 
-                if (idx < 5U) {
-                    uint16_t colors[5] = {
-                        ST7789_COLOR_WHITE,
-                        ST7789_COLOR_RED,
-                        ST7789_COLOR_GREEN,
-                        ST7789_COLOR_BLUE,
-                        ST7789_COLOR_BLACK
-                    };
-                    pen_color = colors[idx];
-                    Demo_DrawToolbar(width, pen_color);
-                } else {
-                    ST7789_FillRect(0U, DEMO_BAR_HEIGHT, width, (uint16_t)(height - DEMO_BAR_HEIGHT), DEMO_BG_COLOR);
-                    Demo_DrawToolbar(width, pen_color);
-                }
+  hint = lv_label_create(panel);
+  if (hint == NULL) {
+    lvgl_panic_blink();
+  }
+  lv_label_set_text(hint, "FreeRTOS + LVGL + ST7789 + XPT2046");
+  lv_obj_set_style_text_color(hint, lv_color_hex(0xFFE066), LV_PART_MAIN);
+  lv_obj_align(hint, LV_ALIGN_TOP_LEFT, 10, 30);
 
-                vTaskDelay(pdMS_TO_TICKS(120));
-            } else {
-                uint16_t x0 = (ts.x >= (DEMO_PEN_SIZE / 2U)) ? (uint16_t)(ts.x - (DEMO_PEN_SIZE / 2U)) : 0U;
-                uint16_t y0 = (ts.y >= (DEMO_PEN_SIZE / 2U)) ? (uint16_t)(ts.y - (DEMO_PEN_SIZE / 2U)) : DEMO_BAR_HEIGHT;
+  g_status_label = lv_label_create(panel);
+  if (g_status_label == NULL) {
+    lvgl_panic_blink();
+  }
+  lv_label_set_text(g_status_label, "Uptime: 0.0 s");
+  lv_obj_set_style_text_color(g_status_label, lv_color_hex(0x8FD3FF), LV_PART_MAIN);
+  lv_obj_align(g_status_label, LV_ALIGN_TOP_LEFT, 10, 62);
 
-                if (y0 < DEMO_BAR_HEIGHT) {
-                    y0 = DEMO_BAR_HEIGHT;
-                }
+  g_counter_label = lv_label_create(panel);
+  if (g_counter_label == NULL) {
+    lvgl_panic_blink();
+  }
+  g_touch_count = 0U;
+  lv_label_set_text(g_counter_label, "Touch count: 0");
+  lv_obj_set_style_text_color(g_counter_label, lv_color_hex(0x7CFF6B), LV_PART_MAIN);
+  lv_obj_align(g_counter_label, LV_ALIGN_TOP_LEFT, 10, 86);
 
-                ST7789_FillRect(x0, y0, DEMO_PEN_SIZE, DEMO_PEN_SIZE, pen_color);
-            }
-        } else {
-            ST7789_SetBacklight(65U);
+  g_touch_label = lv_label_create(panel);
+  if (g_touch_label == NULL) {
+    lvgl_panic_blink();
+  }
+  lv_label_set_text(g_touch_label, "Touch: ---, --- (released)");
+  lv_obj_set_style_text_color(g_touch_label, lv_color_hex(0x66D9FF), LV_PART_MAIN);
+  lv_obj_align(g_touch_label, LV_ALIGN_TOP_LEFT, 10, 110);
+
+  tip = lv_label_create(panel);
+  if (tip != NULL) {
+    lv_label_set_text(tip, "Tap button or screen to test touch");
+    lv_obj_set_style_text_color(tip, lv_color_hex(0xB9C3D8), LV_PART_MAIN);
+    lv_obj_align(tip, LV_ALIGN_TOP_LEFT, 10, 132);
+  }
+
+  g_arc = lv_arc_create(panel);
+  if (g_arc == NULL) {
+    lvgl_panic_blink();
+  }
+  lv_obj_set_size(g_arc, 98, 98);
+  lv_obj_align(g_arc, LV_ALIGN_TOP_RIGHT, -16, 48);
+  lv_arc_set_rotation(g_arc, 135);
+  lv_arc_set_bg_angles(g_arc, 0, 270);
+  lv_arc_set_range(g_arc, 0, 100);
+  lv_arc_set_value(g_arc, 0);
+  lv_obj_set_style_arc_width(g_arc, 10, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(g_arc, 10, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(g_arc, lv_color_hex(0x2F405F), LV_PART_MAIN);
+  lv_obj_set_style_arc_color(g_arc, lv_color_hex(0x35E0A1), LV_PART_INDICATOR);
+
+  arc_title = lv_label_create(panel);
+  if (arc_title != NULL) {
+    lv_label_set_text(arc_title, "Load");
+    lv_obj_set_style_text_color(arc_title, lv_color_hex(0xDDE6F5), LV_PART_MAIN);
+    lv_obj_align_to(arc_title, g_arc, LV_ALIGN_OUT_TOP_MID, 0, -6);
+  }
+
+  btn = lv_button_create(panel);
+  if (btn == NULL) {
+    lvgl_panic_blink();
+  }
+  lv_obj_set_size(btn, 126, 38);
+  lv_obj_align(btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(0x1D7AF1), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_add_event_cb(btn, on_btn_click, LV_EVENT_CLICKED, NULL);
+
+  btn_text = lv_label_create(btn);
+  if (btn_text != NULL) {
+    lv_label_set_text(btn_text, "Touch +1");
+    lv_obj_center(btn_text);
+  }
+
+  g_touch_dot = lv_obj_create(scr);
+  if (g_touch_dot != NULL) {
+    lv_obj_set_size(g_touch_dot, 8, 8);
+    lv_obj_set_style_bg_color(g_touch_dot, lv_color_hex(0xFF4D4F), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(g_touch_dot, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(g_touch_dot, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(g_touch_dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_add_flag(g_touch_dot, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  // 强制首帧立即刷新，便于现场快速判断 LVGL 显示链路是否工作。
+  lv_refr_now(NULL);
+
+  for (;;) {
+    lv_tick_inc(LVGL_LOOP_MS);
+    lv_timer_handler();
+
+    tick++;
+    if ((tick % 2U) == 0U) {
+      arc_value += arc_dir;
+      if (arc_value >= 100) {
+        arc_value = 100;
+        arc_dir = -1;
+      } else if (arc_value <= 0) {
+        arc_value = 0;
+        arc_dir = 1;
+      }
+
+      if (g_arc != NULL) {
+        lv_arc_set_value(g_arc, arc_value);
+      }
+    }
+
+    if ((tick % 2U) == 0U) {
+      uint32_t ms = tick * LVGL_LOOP_MS;
+      if (g_status_label != NULL) {
+        lv_label_set_text_fmt(g_status_label, "Uptime: %lu.%lus", (unsigned long)(ms / 1000U), (unsigned long)((ms % 1000U) / 100U));
+      }
+
+      if (XPT2046_ReadState(&ts) && ts.pressed) {
+        if (g_touch_label != NULL) {
+          lv_label_set_text_fmt(g_touch_label, "Touch: %u, %u (pressed)", ts.x, ts.y);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(12));
+        if (g_touch_dot != NULL) {
+          lv_obj_clear_flag(g_touch_dot, LV_OBJ_FLAG_HIDDEN);
+          lv_obj_set_pos(g_touch_dot, (int32_t)ts.x - 4, (int32_t)ts.y - 4);
+        }
+      } else {
+        if (g_touch_label != NULL) {
+          lv_label_set_text(g_touch_label, "Touch: ---, --- (released)");
+        }
+
+        if (g_touch_dot != NULL) {
+          lv_obj_add_flag(g_touch_dot, LV_OBJ_FLAG_HIDDEN);
+        }
+      }
     }
+
+    vTaskDelay(pdMS_TO_TICKS(LVGL_LOOP_MS));
+  }
 }
