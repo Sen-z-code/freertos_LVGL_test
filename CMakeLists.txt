@@ -102,6 +102,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/APP/st7789.c
     Core/APP/xpt2046.c
     ${LVGL_SOURCES}
+    Core/UI/myui.c
+    Core/UI/Sen_notosanssc_16.c
 )
 
 # Add include paths
@@ -111,6 +113,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     lvgl
     lvgl/src
     lvgl/porting
+    Core/UI
 )
 
 # Add project symbols (macros)

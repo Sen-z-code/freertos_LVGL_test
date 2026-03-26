@@ -134,23 +134,23 @@ static void st7789_hard_reset(void)
 }
 
 /*
- * 设置为横屏方向，并同步软件侧分辨率。
- * 用途：后续所有窗口和全屏填充都按横屏 320x240 计算。
+ * 设置为竖屏方向，并同步软件侧分辨率。
+ * 用途：后续所有窗口和全屏填充都按竖屏 240x320 计算。
  */
-static void st7789_set_rotation_landscape(void)
+static void st7789_set_rotation_portrait(void)
 {
   /*
    * MADCTL(0x36) 控制显示方向与颜色顺序。
-   * 0x68 是当前屏子常见可用的横屏参数之一（MX/MV 与 BGR 组合）。
+   * 0x08 是当前屏子常见可用的竖屏参数之一（BGR 组合）。
    * 若出现上下颠倒、左右镜像、颜色红蓝互换，优先改这里。
    */
-  uint8_t madctl = 0x68U;
+  uint8_t madctl = 0x08U;
 
   st7789_write_cmd(0x36U);
   st7789_write_data(&madctl, 1U);
 
-  g_width = 320U;
-  g_height = 240U;
+  g_width = ST7789_WIDTH_PORTRAIT;
+  g_height = ST7789_HEIGHT_PORTRAIT;
 }
 
 /*
@@ -232,7 +232,7 @@ void ST7789_Init(void)
   st7789_write_cmd(0x3AU);
   st7789_write_data(&data, 1U);
 
-  st7789_set_rotation_landscape();
+  st7789_set_rotation_portrait();
 
   /*
    * 0x20: 显示反相 OFF（与 LVGL 默认颜色语义一致）
