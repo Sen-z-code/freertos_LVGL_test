@@ -17,6 +17,8 @@
 
 #define ST7789_WIDTH_PORTRAIT  240U
 #define ST7789_HEIGHT_PORTRAIT 320U
+#define ST7789_WIDTH_LANDSCAPE 320U
+#define ST7789_HEIGHT_LANDSCAPE 240U
 #define ST7789_BURST_PIXELS    64U
 
 /* Runtime resolution follows panel orientation (portrait/landscape). */
@@ -154,6 +156,25 @@ static void st7789_set_rotation_portrait(void)
 }
 
 /*
+ * 设置为横屏方向，并同步软件侧分辨率。
+ * 用途：后续所有窗口和全屏填充都按横屏 320x240 计算。
+ */
+static void st7789_set_rotation_landscape(void)
+{
+  /*
+   * 这里选择一个常见的横屏 MADCTL 值（MV + MX + BGR），若显示方向或颜色异常，
+   * 可调整为 0x28/0xA8/0xE8 等合适值以匹配面板硬件。
+   */
+  uint8_t madctl = 0x68U;
+
+  st7789_write_cmd(0x36U);
+  st7789_write_data(&madctl, 1U);
+
+  g_width = ST7789_WIDTH_LANDSCAPE;
+  g_height = ST7789_HEIGHT_LANDSCAPE;
+}
+
+/*
  * 设置显存写入窗口。
  * 用途：限定后续 0x2C 像素流的落点区域，可用于全屏或局部刷新。
  */
@@ -232,7 +253,7 @@ void ST7789_Init(void)
   st7789_write_cmd(0x3AU);
   st7789_write_data(&data, 1U);
 
-  st7789_set_rotation_portrait();
+  st7789_set_rotation_landscape();
 
   /*
    * 0x20: 显示反相 OFF（与 LVGL 默认颜色语义一致）
