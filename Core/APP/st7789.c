@@ -4,6 +4,8 @@
 #include "spi.h"
 #include "tim.h"
 
+#include "cmsis_os.h"
+
 /*
  * 说明：
  * 1) 本文件按 ST7789 指令集最小流程初始化，目标是先稳定点亮。
@@ -21,6 +23,8 @@
 #define ST7789_HEIGHT_LANDSCAPE 240U
 #define ST7789_BURST_PIXELS    64U
 
+#define ST7789_DMA_TIMEOUT_MS  500U
+
 /* Runtime resolution follows panel orientation (portrait/landscape). */
 static uint16_t g_width = ST7789_WIDTH_PORTRAIT;
 static uint16_t g_height = ST7789_HEIGHT_PORTRAIT;
@@ -28,10 +32,38 @@ static uint16_t g_height = ST7789_HEIGHT_PORTRAIT;
 static void st7789_select(void);
 static void st7789_unselect(void);
 
+static bool st7789_spi_tx(const uint8_t *data, uint16_t size)
+{
+  if ((data == NULL) || (size == 0U)) {
+    return true;
+  }
+
+  // 若未初始化信号量，则先创建，保证不影响原有上电流程。
+  if (g_spi1_tx_dma_sem == NULL) {
+    SPI1_TxDmaSyncInit();
+  }
+
+  // 如果信号量创建失败或 DMA 启动失败，则回退到阻塞发送以保证功能。
+  if (g_spi1_tx_dma_sem == NULL) {
+    return (HAL_SPI_Transmit(&hspi1, (uint8_t *)data, size, HAL_MAX_DELAY) == HAL_OK);
+  }
+
+  if (HAL_SPI_Transmit_DMA(&hspi1, (uint8_t *)data, size) != HAL_OK) {
+    return (HAL_SPI_Transmit(&hspi1, (uint8_t *)data, size, HAL_MAX_DELAY) == HAL_OK);
+  }
+
+  if (osSemaphoreAcquire(g_spi1_tx_dma_sem, pdMS_TO_TICKS(ST7789_DMA_TIMEOUT_MS)) != osOK) {
+    (void)HAL_SPI_Abort(&hspi1);
+    return (HAL_SPI_Transmit(&hspi1, (uint8_t *)data, size, HAL_MAX_DELAY) == HAL_OK);
+  }
+
+  return true;
+}
+
 // 按 RGB565 缓冲连续写像素，内部做高低字节重排后通过 SPI 发送。
 static void st7789_stream_color_buffer(const uint16_t *pixels, uint32_t pixel_count)
 {
-  uint8_t burst[ST7789_BURST_PIXELS * 2U];
+  static uint8_t burst[ST7789_BURST_PIXELS * 2U];
   uint16_t chunk;
   uint16_t i;
   uint32_t remaining;
@@ -46,7 +78,7 @@ static void st7789_stream_color_buffer(const uint16_t *pixels, uint32_t pixel_co
       burst[2U * i] = (uint8_t)(pixels[i] >> 8);
       burst[(2U * i) + 1U] = (uint8_t)(pixels[i] & 0xFFU);
     }
-    (void)HAL_SPI_Transmit(&hspi1, burst, (uint16_t)(chunk * 2U), HAL_MAX_DELAY);
+    (void)st7789_spi_tx(burst, (uint16_t)(chunk * 2U));
     pixels += chunk;
     remaining -= chunk;
   }
@@ -57,7 +89,7 @@ static void st7789_stream_color_buffer(const uint16_t *pixels, uint32_t pixel_co
 // 连续写入同一颜色像素块，供全屏填充和局部矩形复用。
 static void st7789_stream_solid_color(uint32_t pixel_count, uint16_t color)
 {
-  uint8_t burst[ST7789_BURST_PIXELS * 2U];
+  static uint8_t burst[ST7789_BURST_PIXELS * 2U];
   uint32_t i;
   uint32_t remaining;
   uint16_t chunk;
@@ -73,7 +105,7 @@ static void st7789_stream_solid_color(uint32_t pixel_count, uint16_t color)
   remaining = pixel_count;
   while (remaining > 0U) {
     chunk = (remaining > ST7789_BURST_PIXELS) ? ST7789_BURST_PIXELS : (uint16_t)remaining;
-    (void)HAL_SPI_Transmit(&hspi1, burst, (uint16_t)(chunk * 2U), HAL_MAX_DELAY);
+    (void)st7789_spi_tx(burst, (uint16_t)(chunk * 2U));
     remaining -= chunk;
   }
 
@@ -101,7 +133,7 @@ static void st7789_write_cmd(uint8_t cmd)
   /* D/C=0 means the byte is interpreted as a register command. */
   HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_RESET);
   st7789_select();
-  (void)HAL_SPI_Transmit(&hspi1, &cmd, 1U, HAL_MAX_DELAY);
+  (void)st7789_spi_tx(&cmd, 1U);
   st7789_unselect();
 }
 
@@ -114,7 +146,7 @@ static void st7789_write_data(const uint8_t *data, uint16_t size)
   /* D/C=1 means payload data for the previously selected command. */
   HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_SET);
   st7789_select();
-  (void)HAL_SPI_Transmit(&hspi1, (uint8_t *)data, size, HAL_MAX_DELAY);
+  (void)st7789_spi_tx(data, size);
   st7789_unselect();
 }
 

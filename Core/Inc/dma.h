@@ -1,9 +1,9 @@
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * @file    spi.h
+  * @file    dma.h
   * @brief   This file contains all the function prototypes for
-  *          the spi.c file
+  *          the dma.c file
   ******************************************************************************
   * @attention
   *
@@ -18,8 +18,8 @@
   */
 /* USER CODE END Header */
 /* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef __SPI_H__
-#define __SPI_H__
+#ifndef __DMA_H__
+#define __DMA_H__
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,28 +28,19 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
+/* DMA memory to memory transfer handles -------------------------------------*/
+
 /* USER CODE BEGIN Includes */
 
-#include "cmsis_os.h"
-
 /* USER CODE END Includes */
-
-extern SPI_HandleTypeDef hspi1;
-
-extern SPI_HandleTypeDef hspi2;
-
-extern osSemaphoreId_t g_spi1_tx_dma_sem;  // SPI1 TX DMA 完成信号量（用于保持阻塞发送语义）
 
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
 
-void MX_SPI1_Init(void);
-void MX_SPI2_Init(void);
+void MX_DMA_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
-void SPI1_TxDmaSyncInit(void);  // 初始化 SPI1 TX DMA 同步机制（创建信号量）
 
 /* USER CODE END Prototypes */
 
@@ -57,5 +48,5 @@ void SPI1_TxDmaSyncInit(void);  // 初始化 SPI1 TX DMA 同步机制（创建�
 }
 #endif
 
-#endif /* __SPI_H__ */
+#endif /* __DMA_H__ */
 
