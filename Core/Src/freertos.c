@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "st7789.h"
+#include "MS5611Task.h"
 
 /* USER CODE END Includes */
 
@@ -62,6 +63,25 @@ const osThreadAttr_t myLVGLTask_attributes = {
   .stack_size = 2048 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for myMS5611Task */
+osThreadId_t myMS5611TaskHandle;
+const osThreadAttr_t myMS5611Task_attributes = {
+  .name = "myMS5611Task",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for myDHT11Task */
+osThreadId_t myDHT11TaskHandle;
+const osThreadAttr_t myDHT11Task_attributes = {
+  .name = "myDHT11Task",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for spi1Mutex */
+osMutexId_t spi1MutexHandle;
+const osMutexAttr_t spi1Mutex_attributes = {
+  .name = "spi1Mutex"
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -70,6 +90,8 @@ const osThreadAttr_t myLVGLTask_attributes = {
 
 void StartDefaultTask(void *argument);
 extern void StartLVGLTask(void *argument);
+extern void StartMS5611Task(void *argument);
+extern void StartDHT11Task(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -82,6 +104,9 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
+  /* Create the mutex(es) */
+  /* creation of spi1Mutex */
+  spi1MutexHandle = osMutexNew(&spi1Mutex_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -105,6 +130,12 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of myLVGLTask */
   myLVGLTaskHandle = osThreadNew(StartLVGLTask, NULL, &myLVGLTask_attributes);
+
+  /* creation of myMS5611Task */
+  myMS5611TaskHandle = osThreadNew(StartMS5611Task, NULL, &myMS5611Task_attributes);
+
+  /* creation of myDHT11Task */
+  myDHT11TaskHandle = osThreadNew(StartDHT11Task, NULL, &myDHT11Task_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */

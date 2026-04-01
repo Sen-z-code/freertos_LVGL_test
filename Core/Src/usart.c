@@ -21,7 +21,8 @@
 #include "usart.h"
 
 /* USER CODE BEGIN 0 */
-
+#include <stdio.h>
+#include <errno.h>
 /* USER CODE END 0 */
 
 UART_HandleTypeDef huart1;
@@ -110,5 +111,22 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 }
 
 /* USER CODE BEGIN 1 */
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
+#endif
+ 
+#ifndef STDERR_FILENO
+#define STDERR_FILENO 2
+#endif
+int _write(int file, char *ptr, int len)
+{
+    if (file == STDOUT_FILENO || file == STDERR_FILENO) {
+        HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, HAL_MAX_DELAY);
+        return len;
+    }
+ 
+    errno = EBADF;
+    return -1;
+}
 
 /* USER CODE END 1 */

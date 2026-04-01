@@ -38,6 +38,8 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 extern osThreadId_t myLVGLTaskHandle;
+extern osThreadId_t myMS5611TaskHandle;
+extern osThreadId_t myDHT11TaskHandle;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -62,6 +64,8 @@ void Error_Handler(void);
 #define LCD_CS_GPIO_Port GPIOC
 #define LCD_DC_Pin GPIO_PIN_1
 #define LCD_DC_GPIO_Port GPIOC
+#define BARO_CS_Pin GPIO_PIN_4
+#define BARO_CS_GPIO_Port GPIOA
 #define LCD_RST_Pin GPIO_PIN_4
 #define LCD_RST_GPIO_Port GPIOC
 #define T_CS_Pin GPIO_PIN_5
@@ -71,6 +75,8 @@ void Error_Handler(void);
 #define T_IRQ_EXTI_IRQn EXTI0_IRQn
 #define LCD_BL_Pin GPIO_PIN_12
 #define LCD_BL_GPIO_Port GPIOD
+#define DHT11_DATA_Pin GPIO_PIN_8
+#define DHT11_DATA_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 

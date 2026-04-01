@@ -101,6 +101,10 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/APP/LVGLTask.c
     Core/APP/st7789.c
     Core/APP/xpt2046.c
+    Core/APP/MS5611Task.c
+    Core/APP/ms5611.c
+    Core/APP/DHT11.c
+    Core/APP/DHT11Task.c
     ${LVGL_SOURCES}
     Core/UI/myui.c
     Core/UI/Sen_notosanssc_16.c

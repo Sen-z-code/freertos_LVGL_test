@@ -18,8 +18,8 @@
 #define SENSOR_HEARTRATE_INIT 78
 #define SENSOR_SPO2_INIT 95
 #define SENSOR_ALTITUDE_INIT 120
-#define SENSOR_TEMP_INIT 25
-#define SENSOR_HUMIDITY_INIT 60
+#define SENSOR_TEMP_INIT 0
+#define SENSOR_HUMIDITY_INIT 0
 #define SENSOR_COMPASS_INIT 180
 #define SENSOR_BATTERY_INIT 70
 
@@ -38,11 +38,16 @@ static lv_obj_t *lbl_steps;
 static lv_obj_t *bar_steps;
 static lv_obj_t *lbl_spo2;
 static lv_obj_t *lbl_alt;
+static lv_obj_t *lbl_temp;
 static lv_obj_t *lbl_hum;
 static lv_obj_t *lbl_compass;
 static lv_obj_t *lbl_batt;
 static lv_obj_t *cont_right;
 static lv_obj_t *dropdown_panel; // 顶部下拉面板句柄
+/* 底部视觉模块的容器（用于更新内置 arc） */
+static lv_obj_t *cont_temp_widget = NULL;
+static lv_obj_t *cont_hum_widget = NULL;
+static lv_obj_t *cont_hr_widget = NULL;
 
 /* 亮度调节：用一个黑色半透明遮罩模拟“屏幕亮度”（值越低遮罩越黑） */
 static lv_obj_t *brightness_overlay;
@@ -65,6 +70,54 @@ static lv_timer_t *open_calendar_timer = NULL;
 /* 计算器 screen 与定时器 */
 static lv_obj_t *calc_screen = NULL;
 static lv_timer_t *open_calc_timer = NULL;
+
+
+// ============================
+// 海拔数据绑定（观察者模式 + 100Hz 刷新）
+// ============================
+
+#define MYUI_ALTITUDE_OBSERVER_MAX  8
+
+typedef struct {
+  myui_altitude_observer_cb_t cb;
+  void * user_data;
+} myui_altitude_observer_slot_t;
+
+static myui_altitude_observer_slot_t s_altitude_observers[MYUI_ALTITUDE_OBSERVER_MAX];
+
+/* 最新海拔值（米，float）。注意：可能由非 LVGL 线程更新，因此 UI 更新在定时器中完成 */
+static volatile float s_altitude_latest_m = (float)SENSOR_ALTITUDE_INIT;
+static volatile bool s_altitude_dirty = true;
+
+/* 100Hz UI 刷新定时器（10ms） */
+static lv_timer_t *s_altitude_100hz_timer = NULL;
+
+static void myui_altitude_100hz_timer_cb(lv_timer_t * t);
+static void myui_ui_altitude_observer(float altitude_m, void * user_data);
+
+// ============================
+// 温湿度数据绑定（观察者模式 + 100Hz 刷新）
+// ============================
+
+#define MYUI_TEMPHUM_OBSERVER_MAX 8
+
+typedef struct {
+  myui_temp_hum_observer_cb_t cb;
+  void * user_data;
+} myui_temphum_observer_slot_t;
+
+static myui_temphum_observer_slot_t s_temphum_observers[MYUI_TEMPHUM_OBSERVER_MAX];
+
+/* 最新温湿度缓存 */
+static volatile float s_temp_latest_c = (float)SENSOR_TEMP_INIT;
+static volatile float s_hum_latest_pct = (float)SENSOR_HUMIDITY_INIT;
+static volatile bool s_temphum_dirty = true;
+
+/* 100Hz UI 刷新定时器（10ms） */
+static lv_timer_t *s_temphum_100hz_timer = NULL;
+
+static void myui_temphum_100hz_timer_cb(lv_timer_t * t);
+static void myui_ui_temphum_observer(float temp_c, float hum_pct, void * user_data);
 
 
 
@@ -234,13 +287,6 @@ static const char *calc_btn_map[] = {
   "0",".","=","+"
 };
 
-// /* 计算器函数原型 */
-// static void create_calculator_on_screen(lv_obj_t * scr);
-// static void open_calc_timer_cb(lv_timer_t * t);
-// static void open_calculator_cb(lv_event_t * e);
-// static void calculator_btn_event_cb(lv_event_t * e);
-// static void calc_update_display(void);
-// static void calc_apply_op(double val);
 
 /* 定时器回调：安全地切回主界面并删除日历 screen或计算器 screen */
 static void open_menu_timer_cb(lv_timer_t * t)
@@ -645,7 +691,6 @@ static void open_calculator_cb(lv_event_t * e)
 }
 
 
-
 // 创建左侧滑出面板（应用列表风格）
 static void create_left_menu(lv_obj_t * scr)
 {
@@ -943,8 +988,8 @@ static lv_obj_t * create_sensor_widget(lv_obj_t *parent, lv_color_t arc_color, c
 
   // 下方数值
   lv_obj_t *lbl_val = lv_label_create(cont);
-    lv_label_set_text(lbl_val, value);
-    lv_obj_set_style_text_font(lbl_val, &lv_font_montserrat_12, 0);
+  lv_label_set_text(lbl_val, value);
+  lv_obj_set_style_text_font(lbl_val, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(lbl_val, lv_color_white(), 0);
   lv_obj_align(lbl_val, LV_ALIGN_BOTTOM_MID, 0, -10);
 
@@ -1034,8 +1079,22 @@ void myui_init(void)
   lv_label_set_text_fmt(lbl_spo2, "SpO2: %u%%", SENSOR_SPO2_INIT);
   lv_obj_set_style_text_font(lbl_spo2, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(lbl_spo2, lv_color_white(), 0);
+  lbl_temp = lv_label_create(cont_right);
+  lv_label_set_text_fmt(lbl_temp, "T: %d°C", SENSOR_TEMP_INIT);
+  lv_obj_set_style_text_font(lbl_temp, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl_temp, lv_color_white(), 0);
+
+  lbl_hum = lv_label_create(cont_right);
+  lv_label_set_text_fmt(lbl_hum, "H: %d%%", SENSOR_HUMIDITY_INIT);
+  lv_obj_set_style_text_font(lbl_hum, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl_hum, lv_color_white(), 0);
+
   lbl_alt = lv_label_create(cont_right);
-  lv_label_set_text_fmt(lbl_alt, "Alt:%dm", SENSOR_ALTITUDE_INIT);
+  {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Alt: %.1fm", (double)s_altitude_latest_m);
+    lv_label_set_text(lbl_alt, buf);
+  }
   lv_obj_set_style_text_font(lbl_alt, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(lbl_alt, lv_color_white(), 0);
   lbl_compass = lv_label_create(cont_right);
@@ -1067,13 +1126,13 @@ void myui_init(void)
   // 三个模块：橙色（温度），青色（水滴/湿度），红色（心率）
   char tmpbuf[32];
   snprintf(tmpbuf, sizeof(tmpbuf), "%d°", SENSOR_TEMP_INIT);
-  create_sensor_widget(cont_bottom, lv_palette_main(LV_PALETTE_ORANGE), "°C", tmpbuf, 30);
+  cont_temp_widget = create_sensor_widget(cont_bottom, lv_palette_main(LV_PALETTE_ORANGE), "°C", tmpbuf, 30);
 
   snprintf(tmpbuf, sizeof(tmpbuf), "%d%%", SENSOR_HUMIDITY_INIT);
-  create_sensor_widget(cont_bottom, lv_palette_main(LV_PALETTE_BLUE), "H2O", tmpbuf, SENSOR_HUMIDITY_INIT);
+  cont_hum_widget = create_sensor_widget(cont_bottom, lv_palette_main(LV_PALETTE_BLUE), "H2O", tmpbuf, SENSOR_HUMIDITY_INIT);
 
   snprintf(tmpbuf, sizeof(tmpbuf), "%d", SENSOR_HEARTRATE_INIT);
-  create_sensor_widget(cont_bottom, lv_palette_main(LV_PALETTE_RED), "HR", tmpbuf, 78);
+  cont_hr_widget = create_sensor_widget(cont_bottom, lv_palette_main(LV_PALETTE_RED), "HR", tmpbuf, 78);
 
   /* 6.使用封装函数创建顶部下拉面板 */
   create_dropdown_panel(scr);
@@ -1081,26 +1140,208 @@ void myui_init(void)
   /* 7.创建左滑菜单面板（隐藏在左侧），用于应用列表 */
   create_left_menu(scr);
 
+  /* 注册 UI 观察者：只缓存海拔值，不直接操作 LVGL */
+  (void)myui_altitude_register_observer(myui_ui_altitude_observer, NULL);
+
+  /* 注册 UI 温湿度观察者：只缓存温湿度值，不直接操作 LVGL */
+  (void)myui_temp_hum_register_observer(myui_ui_temphum_observer, NULL);
+
+  /* 100Hz 刷新定时器：在 LVGL 线程里把最新海拔刷到 label */
+  if(!s_altitude_100hz_timer) {
+    s_altitude_100hz_timer = lv_timer_create(myui_altitude_100hz_timer_cb, 10, NULL);
+  }
+
+  if(!s_temphum_100hz_timer) {
+    s_temphum_100hz_timer = lv_timer_create(myui_temphum_100hz_timer_cb, 10, NULL);
+  }
+
 }
 
 
 
 
-// 更新界面上的传感器显示（占位/接口）
-// 这里使用常量作为占位值，后续请将真实传感器数据在观察者回调中写入并调用该函数
-void myui_update_sensor_values(void)
+
+// ----------------------------
+// 海拔观察者实现
+// ----------------------------
+
+bool myui_altitude_register_observer(myui_altitude_observer_cb_t cb, void * user_data)
 {
-  if(lbl_steps) lv_label_set_text_fmt(lbl_steps, "今日步数\n%u", SENSOR_STEPS_INIT);
-  if(bar_steps) lv_bar_set_value(bar_steps, SENSOR_STEPS_INIT > 10000 ? 10000 : SENSOR_STEPS_INIT, LV_ANIM_OFF);
-  if(lbl_spo2) lv_label_set_text_fmt(lbl_spo2, "SpO2: %u%%", SENSOR_SPO2_INIT);
-  if(lbl_alt) lv_label_set_text_fmt(lbl_alt, "Alt: %dm", SENSOR_ALTITUDE_INIT);
-  if(lbl_compass) lv_label_set_text_fmt(lbl_compass, "Dir:%d°", SENSOR_COMPASS_INIT);
-  if(lbl_batt) lv_label_set_text_fmt(lbl_batt, "Bat:%u%%", SENSOR_BATTERY_INIT);
+  if(!cb) return false;
+
+  /* 若已存在则视为成功 */
+  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
+    if(s_altitude_observers[i].cb == cb && s_altitude_observers[i].user_data == user_data) {
+      return true;
+    }
+  }
+
+  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
+    if(s_altitude_observers[i].cb == NULL) {
+      s_altitude_observers[i].cb = cb;
+      s_altitude_observers[i].user_data = user_data;
+      return true;
+    }
+  }
+  return false;
+}
+
+void myui_altitude_unregister_observer(myui_altitude_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return;
+  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
+    if(s_altitude_observers[i].cb == cb && s_altitude_observers[i].user_data == user_data) {
+      s_altitude_observers[i].cb = NULL;
+      s_altitude_observers[i].user_data = NULL;
+    }
+  }
+}
+
+void myui_altitude_publish(float altitude_m)
+{
+  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
+    if(s_altitude_observers[i].cb) {
+      s_altitude_observers[i].cb(altitude_m, s_altitude_observers[i].user_data);
+    }
+  }
+}
+
+void myui_set_altitude_m(float altitude_m)
+{
+  myui_altitude_publish(altitude_m);
+}
+
+static void myui_ui_altitude_observer(float altitude_m, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_altitude_latest_m = altitude_m;
+  s_altitude_dirty = true;
+}
+
+static void myui_altitude_100hz_timer_cb(lv_timer_t * t)
+{
+  LV_UNUSED(t);
+
+  if(!lbl_alt) return;
+  if(!s_altitude_dirty) return;
+
+  float v = s_altitude_latest_m;
+  s_altitude_dirty = false;
+  char buf[32];
+  snprintf(buf, sizeof(buf), "Alt: %.1fm", (double)v);
+  lv_label_set_text(lbl_alt, buf);
 }
 
 
-/*
- * 观察者绑定提示：
- * - 真实项目中可实现一个注册函数：myui_register_sensor_observer(callback)，
- *   在回调中更新相应传感器的全局变量或直接更新标签并调用 `myui_update_sensor_values()`。
- */
+// ----------------------------
+// 温湿度观察者实现
+// ----------------------------
+
+bool myui_temp_hum_register_observer(myui_temp_hum_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return false;
+
+  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
+    if(s_temphum_observers[i].cb == cb && s_temphum_observers[i].user_data == user_data) {
+      return true;
+    }
+  }
+
+  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
+    if(s_temphum_observers[i].cb == NULL) {
+      s_temphum_observers[i].cb = cb;
+      s_temphum_observers[i].user_data = user_data;
+      return true;
+    }
+  }
+  return false;
+}
+
+void myui_temp_hum_unregister_observer(myui_temp_hum_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return;
+  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
+    if(s_temphum_observers[i].cb == cb && s_temphum_observers[i].user_data == user_data) {
+      s_temphum_observers[i].cb = NULL;
+      s_temphum_observers[i].user_data = NULL;
+    }
+  }
+}
+
+void myui_temp_hum_publish(float temp_c, float hum_pct)
+{
+  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
+    if(s_temphum_observers[i].cb) {
+      s_temphum_observers[i].cb(temp_c, hum_pct, s_temphum_observers[i].user_data);
+    }
+  }
+}
+
+void myui_set_temp_hum(float temp_c, float hum_pct)
+{
+  myui_temp_hum_publish(temp_c, hum_pct);
+}
+
+static void myui_ui_temphum_observer(float temp_c, float hum_pct, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_temp_latest_c = temp_c;
+  s_hum_latest_pct = hum_pct;
+  s_temphum_dirty = true;
+}
+
+static void myui_temphum_100hz_timer_cb(lv_timer_t * t)
+{
+  LV_UNUSED(t);
+
+  if(!lbl_temp && !lbl_hum) return;
+  if(!s_temphum_dirty) return;
+
+  float tc = s_temp_latest_c;
+  float hp = s_hum_latest_pct;
+  s_temphum_dirty = false;
+
+  char buf[64];
+  if(lbl_temp) {
+    snprintf(buf, sizeof(buf), "T: %.1f°C", (double)tc);
+    lv_label_set_text(lbl_temp, buf);
+  }
+  if(lbl_hum) {
+    snprintf(buf, sizeof(buf), "H: %.0f%%", (double)hp);
+    lv_label_set_text(lbl_hum, buf);
+  }
+  /* 更新底部圆形进度（arc） */
+  if(cont_temp_widget) {
+    lv_obj_t * arc = lv_obj_get_child(cont_temp_widget, 0);
+    if(arc) {
+      int p = (int)tc;
+      if(p < 0) p = 0; if(p > 100) p = 100;
+      lv_arc_set_value(arc, p);
+    }
+  }
+  if(cont_hum_widget) {
+    lv_obj_t * arc = lv_obj_get_child(cont_hum_widget, 0);
+    if(arc) {
+      int p = (int)hp;
+      if(p < 0) p = 0; if(p > 100) p = 100;
+      lv_arc_set_value(arc, p);
+    }
+  }
+  /* 同步更新底部圆形下方的数值标签（create_sensor_widget 中的 lbl_val） */
+  if(cont_temp_widget) {
+    lv_obj_t * val_lbl = lv_obj_get_child(cont_temp_widget, 1);
+    if(val_lbl) {
+      char tbuf[32];
+      snprintf(tbuf, sizeof(tbuf), "%.0f°", (double)tc);
+      lv_label_set_text(val_lbl, tbuf);
+    }
+  }
+  if(cont_hum_widget) {
+    lv_obj_t * val_lbl = lv_obj_get_child(cont_hum_widget, 1);
+    if(val_lbl) {
+      char hbuf[32];
+      snprintf(hbuf, sizeof(hbuf), "%.0f%%", (double)hp);
+      lv_label_set_text(val_lbl, hbuf);
+    }
+  }
+}

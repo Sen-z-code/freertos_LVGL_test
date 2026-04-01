@@ -6,6 +6,8 @@
 
 #include "cmsis_os.h"
 
+extern osMutexId_t spi1MutexHandle;
+
 /*
  * 说明：
  * 1) 本文件按 ST7789 指令集最小流程初始化，目标是先稳定点亮。
@@ -31,6 +33,20 @@ static uint16_t g_height = ST7789_HEIGHT_PORTRAIT;
 
 static void st7789_select(void);
 static void st7789_unselect(void);
+
+static void st7789_spi1_lock(void)
+{
+  if (spi1MutexHandle != NULL) {
+    (void)osMutexAcquire(spi1MutexHandle, osWaitForever);
+  }
+}
+
+static void st7789_spi1_unlock(void)
+{
+  if (spi1MutexHandle != NULL) {
+    (void)osMutexRelease(spi1MutexHandle);
+  }
+}
 
 static bool st7789_spi_tx(const uint8_t *data, uint16_t size)
 {
@@ -115,6 +131,7 @@ static void st7789_stream_solid_color(uint32_t pixel_count, uint16_t color)
 /* 拉低 CS，选中 LCD，从机开始接收本次 SPI 传输。 */
 static void st7789_select(void)
 {
+  st7789_spi1_lock();
   HAL_GPIO_WritePin(LCD_CS_GPIO_Port, LCD_CS_Pin, GPIO_PIN_RESET);
 }
 
@@ -122,6 +139,7 @@ static void st7789_select(void)
 static void st7789_unselect(void)
 {
   HAL_GPIO_WritePin(LCD_CS_GPIO_Port, LCD_CS_Pin, GPIO_PIN_SET);
+  st7789_spi1_unlock();
 }
 
 /*
