@@ -16,6 +16,7 @@
 //  函数均带中文注释说明模块用途和绑定点。
 void myui_init(void);
 
+
 // 切换顶部下拉快捷面板（show = true 显示，false 隐藏）
 // 说明：面板创建于 `myui_init()`，该函数用于在运行时显示或隐藏面板并带有简单过渡。
 void myui_toggle_dropdown(bool show);
@@ -62,5 +63,27 @@ void myui_temp_hum_publish(float temp_c, float hum_pct);
 
 // 便捷设置接口（等价于 publish）
 void myui_set_temp_hum(float temp_c, float hum_pct);
+
+
+// ============================
+// 步数数据绑定（观察者模式）
+// ============================
+
+// 步数 + 陀螺仪欧拉角回调（steps: 无符号整数，pitch/roll/yaw: 度数 float）
+// 注意：回调可能在数据发布者线程/任务中被调用，请不要在回调里直接操作 LVGL 控件。
+typedef void (*myui_steps_observer_cb_t)(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg, void * user_data);
+
+// 注册/注销步数观察者
+bool myui_steps_register_observer(myui_steps_observer_cb_t cb, void * user_data);
+void myui_steps_unregister_observer(myui_steps_observer_cb_t cb, void * user_data);
+
+// 发布步数及欧拉角（通知所有观察者）
+void myui_steps_publish(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg);
+
+// 便捷设置接口（等价于 publish）
+void myui_set_steps(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg);
+
+
+
 
 #endif

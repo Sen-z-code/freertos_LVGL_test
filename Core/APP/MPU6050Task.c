@@ -6,6 +6,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os.h"
+#include "step_counter.h"
+#include "myui.h"
 
 void StartMPU6050Task(void *argument)
 {
@@ -16,9 +18,10 @@ void StartMPU6050Task(void *argument)
 		vTaskDelay(pdMS_TO_TICKS(200));
 	}
 
-	// 姿态解算初始化（Mahony-IMU：无磁力计，yaw 会漂移）
+	// 初始化：姿态解算与步数计
 	MPU6050_Fusion_Init();
 	MPU6050_Fusion_SetGains(2.0f, 0.0f);
+	StepCounter_Init();
 
 	// 标记是否已完成上电静止标定，只有完成后才把数据发到队列
 	volatile bool calibrated = false;
@@ -56,13 +59,27 @@ void StartMPU6050Task(void *argument)
 			// 姿态更新（dt 使用固定周期，避免 tick 抖动）
 			MPU6050_Fusion_Update(ax, ay, az, gx, gy, gz, 0.01f);
 
+			// 读取欧拉角
+			float roll=0.0f, pitch=0.0f, yaw=0.0f;
+			MPU6050_Fusion_GetEuler(&roll, &pitch, &yaw);
+
+			// 步数检测（在采样任务中处理，避免打印任务重复读 I2C）
+			StepCounter_ProcessSample(ax, ay, az, gx, gy, gz, xTaskGetTickCount() * portTICK_PERIOD_MS);
+			uint32_t steps = StepCounter_GetCount();
+
 			mpu_msg_t msg;
 			msg.ax = ax; msg.ay = ay; msg.az = az;
 			msg.gx = gx; msg.gy = gy; msg.gz = gz;
 			msg.temp = temp;
+			msg.roll = roll; msg.pitch = pitch; msg.yaw = yaw;
+			msg.steps = steps;
+
 			if (calibrated) {
-				osStatus_t st = osMessageQueuePut(mympu6050QueueHandle, &msg, 0, pdMS_TO_TICKS(200));
-				(void)st;
+				// osStatus_t st = osMessageQueuePut(mympu6050QueueHandle, &msg, 0, pdMS_TO_TICKS(200));
+				// (void)st;
+
+				/* 发布步数到 UI（LVGL 观察者模式） */
+				myui_set_steps(steps, roll, pitch, yaw);
 			}
 		}
 		vTaskDelayUntil(&lastWakeTime, period);

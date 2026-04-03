@@ -29,6 +29,10 @@ typedef struct {
     float gy;
     float gz;
     float temp;
+    float roll; // 欧拉角 roll (°)
+    float pitch; // 欧拉角 pitch (°)
+    float yaw; // 欧拉角 yaw (°)
+    uint32_t steps; // 累计步数
 } mpu_msg_t;
  
 

@@ -14,12 +14,12 @@
  */
 
 /* 传感器占位初始值（可替换为实际数据绑定） */
-#define SENSOR_STEPS_INIT 3241
+#define SENSOR_STEPS_INIT 50
 #define SENSOR_HEARTRATE_INIT 78
 #define SENSOR_SPO2_INIT 95
 #define SENSOR_ALTITUDE_INIT 120
-#define SENSOR_TEMP_INIT 0
-#define SENSOR_HUMIDITY_INIT 0
+#define SENSOR_TEMP_INIT 90
+#define SENSOR_HUMIDITY_INIT 60
 #define SENSOR_COMPASS_INIT 180
 #define SENSOR_BATTERY_INIT 70
 
@@ -40,6 +40,9 @@ static lv_obj_t *lbl_spo2;
 static lv_obj_t *lbl_alt;
 static lv_obj_t *lbl_temp;
 static lv_obj_t *lbl_hum;
+static lv_obj_t *lbl_pitch;
+static lv_obj_t *lbl_roll;
+static lv_obj_t *lbl_yaw;
 static lv_obj_t *lbl_compass;
 static lv_obj_t *lbl_batt;
 static lv_obj_t *cont_right;
@@ -71,6 +74,17 @@ static lv_timer_t *open_calendar_timer = NULL;
 static lv_obj_t *calc_screen = NULL;
 static lv_timer_t *open_calc_timer = NULL;
 
+// 内部：创建底色与基本样式
+static void create_base_style(lv_obj_t *parent)
+{
+  lv_obj_set_style_bg_color(parent, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(parent, 8, 0);
+  /* 设置默认文字为白色，保证深色背景上的可读性 */
+  lv_obj_set_style_text_color(parent, lv_color_white(), 0);
+  lv_obj_set_style_text_opa(parent, LV_OPA_COVER, 0);
+}
+
 
 // ============================
 // 海拔数据绑定（观察者模式 + 100Hz 刷新）
@@ -92,8 +106,72 @@ static volatile bool s_altitude_dirty = true;
 /* 100Hz UI 刷新定时器（10ms） */
 static lv_timer_t *s_altitude_100hz_timer = NULL;
 
-static void myui_altitude_100hz_timer_cb(lv_timer_t * t);
-static void myui_ui_altitude_observer(float altitude_m, void * user_data);
+bool myui_altitude_register_observer(myui_altitude_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return false;
+
+  /* 若已存在则视为成功 */
+  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
+    if(s_altitude_observers[i].cb == cb && s_altitude_observers[i].user_data == user_data) {
+      return true;
+    }
+  }
+
+  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
+    if(s_altitude_observers[i].cb == NULL) {
+      s_altitude_observers[i].cb = cb;
+      s_altitude_observers[i].user_data = user_data;
+      return true;
+    }
+  }
+  return false;
+}
+
+void myui_altitude_unregister_observer(myui_altitude_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return;
+  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
+    if(s_altitude_observers[i].cb == cb && s_altitude_observers[i].user_data == user_data) {
+      s_altitude_observers[i].cb = NULL;
+      s_altitude_observers[i].user_data = NULL;
+    }
+  }
+}
+
+void myui_altitude_publish(float altitude_m)
+{
+  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
+    if(s_altitude_observers[i].cb) {
+      s_altitude_observers[i].cb(altitude_m, s_altitude_observers[i].user_data);
+    }
+  }
+}
+
+void myui_set_altitude_m(float altitude_m)
+{
+  myui_altitude_publish(altitude_m);
+}
+
+static void myui_ui_altitude_observer(float altitude_m, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_altitude_latest_m = altitude_m;
+  s_altitude_dirty = true;
+}
+
+static void myui_altitude_100hz_timer_cb(lv_timer_t * t)
+{
+  LV_UNUSED(t);
+
+  if(!lbl_alt) return;
+  if(!s_altitude_dirty) return;
+
+  float v = s_altitude_latest_m;
+  s_altitude_dirty = false;
+  char buf[32];
+  snprintf(buf, sizeof(buf), "Alt: %.1fm", (double)v);
+  lv_label_set_text(lbl_alt, buf);
+}
 
 // ============================
 // 温湿度数据绑定（观察者模式 + 100Hz 刷新）
@@ -116,20 +194,230 @@ static volatile bool s_temphum_dirty = true;
 /* 100Hz UI 刷新定时器（10ms） */
 static lv_timer_t *s_temphum_100hz_timer = NULL;
 
-static void myui_temphum_100hz_timer_cb(lv_timer_t * t);
-static void myui_ui_temphum_observer(float temp_c, float hum_pct, void * user_data);
-
-
-
-// 内部：创建底色与基本样式
-static void create_base_style(lv_obj_t *parent)
+bool myui_temp_hum_register_observer(myui_temp_hum_observer_cb_t cb, void * user_data)
 {
-  lv_obj_set_style_bg_color(parent, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_all(parent, 8, 0);
-  /* 设置默认文字为白色，保证深色背景上的可读性 */
-  lv_obj_set_style_text_color(parent, lv_color_white(), 0);
-  lv_obj_set_style_text_opa(parent, LV_OPA_COVER, 0);
+  if(!cb) return false;
+
+  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
+    if(s_temphum_observers[i].cb == cb && s_temphum_observers[i].user_data == user_data) {
+      return true;
+    }
+  }
+
+  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
+    if(s_temphum_observers[i].cb == NULL) {
+      s_temphum_observers[i].cb = cb;
+      s_temphum_observers[i].user_data = user_data;
+      return true;
+    }
+  }
+  return false;
+}
+
+void myui_temp_hum_unregister_observer(myui_temp_hum_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return;
+  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
+    if(s_temphum_observers[i].cb == cb && s_temphum_observers[i].user_data == user_data) {
+      s_temphum_observers[i].cb = NULL;
+      s_temphum_observers[i].user_data = NULL;
+    }
+  }
+}
+
+void myui_temp_hum_publish(float temp_c, float hum_pct)
+{
+  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
+    if(s_temphum_observers[i].cb) {
+      s_temphum_observers[i].cb(temp_c, hum_pct, s_temphum_observers[i].user_data);
+    }
+  }
+}
+
+void myui_set_temp_hum(float temp_c, float hum_pct)
+{
+  myui_temp_hum_publish(temp_c, hum_pct);
+}
+
+static void myui_ui_temphum_observer(float temp_c, float hum_pct, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_temp_latest_c = temp_c;
+  s_hum_latest_pct = hum_pct;
+  s_temphum_dirty = true;
+}
+
+static void myui_temphum_100hz_timer_cb(lv_timer_t * t)
+{
+  LV_UNUSED(t);
+
+  if(!lbl_temp && !lbl_hum) return;
+  if(!s_temphum_dirty) return;
+
+  float tc = s_temp_latest_c;
+  float hp = s_hum_latest_pct;
+  s_temphum_dirty = false;
+
+  char buf[64];
+  if(lbl_temp) {
+    snprintf(buf, sizeof(buf), "T: %.1f°C", (double)tc);
+    lv_label_set_text(lbl_temp, buf);
+  }
+  if(lbl_hum) {
+    snprintf(buf, sizeof(buf), "H: %.0f%%", (double)hp);
+    lv_label_set_text(lbl_hum, buf);
+  }
+  /* 更新底部圆形进度（arc） */
+  if(cont_temp_widget) {
+    lv_obj_t * arc = lv_obj_get_child(cont_temp_widget, 0);
+    if(arc) {
+      int p = (int)tc;
+      if(p < 0) p = 0; if(p > 100) p = 100;
+      lv_arc_set_value(arc, p);
+    }
+  }
+  if(cont_hum_widget) {
+    lv_obj_t * arc = lv_obj_get_child(cont_hum_widget, 0);
+    if(arc) {
+      int p = (int)hp;
+      if(p < 0) p = 0; if(p > 100) p = 100;
+      lv_arc_set_value(arc, p);
+    }
+  }
+  /* 同步更新底部圆形下方的数值标签（create_sensor_widget 中的 lbl_val） */
+  if(cont_temp_widget) {
+    lv_obj_t * val_lbl = lv_obj_get_child(cont_temp_widget, 1);
+    if(val_lbl) {
+      char tbuf[32];
+      snprintf(tbuf, sizeof(tbuf), "%.0f°", (double)tc);
+      lv_label_set_text(val_lbl, tbuf);
+    }
+  }
+  if(cont_hum_widget) {
+    lv_obj_t * val_lbl = lv_obj_get_child(cont_hum_widget, 1);
+    if(val_lbl) {
+      char hbuf[32];
+      snprintf(hbuf, sizeof(hbuf), "%.0f%%", (double)hp);
+      lv_label_set_text(val_lbl, hbuf);
+    }
+  }
+}
+
+
+// ----------------------------
+// 步数观察者实现
+// ----------------------------
+
+#define MYUI_STEPS_OBSERVER_MAX 8
+
+typedef struct {
+  myui_steps_observer_cb_t cb;
+  void * user_data;
+} myui_steps_observer_slot_t;
+
+static myui_steps_observer_slot_t s_steps_observers[MYUI_STEPS_OBSERVER_MAX];
+
+/* 最新步数缓存 */
+typedef struct {
+  uint32_t steps;
+  float pitch_deg;
+  float roll_deg;
+  float yaw_deg;
+} myui_steps_cache_t;
+
+static volatile myui_steps_cache_t s_steps_latest = { (uint32_t)SENSOR_STEPS_INIT, 0.0f, 0.0f, 0.0f };
+static volatile bool s_steps_dirty = true;
+
+/* 100Hz UI 刷新定时器（10ms） */
+static lv_timer_t *s_steps_100hz_timer = NULL;
+
+bool myui_steps_register_observer(myui_steps_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return false;
+
+  for(uint32_t i = 0; i < MYUI_STEPS_OBSERVER_MAX; i++) {
+    if(s_steps_observers[i].cb == cb && s_steps_observers[i].user_data == user_data) return true;
+  }
+
+  for(uint32_t i = 0; i < MYUI_STEPS_OBSERVER_MAX; i++) {
+    if(s_steps_observers[i].cb == NULL) {
+      s_steps_observers[i].cb = cb;
+      s_steps_observers[i].user_data = user_data;
+      return true;
+    }
+  }
+  return false;
+}
+
+void myui_steps_unregister_observer(myui_steps_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return;
+  for(uint32_t i = 0; i < MYUI_STEPS_OBSERVER_MAX; i++) {
+    if(s_steps_observers[i].cb == cb && s_steps_observers[i].user_data == user_data) {
+      s_steps_observers[i].cb = NULL;
+      s_steps_observers[i].user_data = NULL;
+    }
+  }
+}
+
+void myui_steps_publish(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg)
+{
+  for(uint32_t i = 0; i < MYUI_STEPS_OBSERVER_MAX; i++) {
+    if(s_steps_observers[i].cb) {
+      s_steps_observers[i].cb(steps, pitch_deg, roll_deg, yaw_deg, s_steps_observers[i].user_data);
+    }
+  }
+}
+
+void myui_set_steps(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg)
+{
+  myui_steps_publish(steps, pitch_deg, roll_deg, yaw_deg);
+}
+
+static void myui_ui_steps_observer(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_steps_latest.steps = steps;
+  s_steps_latest.pitch_deg = pitch_deg;
+  s_steps_latest.roll_deg = roll_deg;
+  s_steps_latest.yaw_deg = yaw_deg;
+  s_steps_dirty = true;
+}
+
+static void myui_steps_100hz_timer_cb(lv_timer_t * t)
+{
+  LV_UNUSED(t);
+
+  if(!lbl_steps && !bar_steps) return;
+  if(!s_steps_dirty) return;
+
+  myui_steps_cache_t c = s_steps_latest;
+  s_steps_dirty = false;
+
+  if(lbl_steps) {
+    lv_label_set_text_fmt(lbl_steps, "今日步数\n%u", (unsigned int)c.steps);
+  }
+  if(bar_steps) {
+    uint32_t bv = c.steps > 100 ? 100 : c.steps;
+    lv_bar_set_value(bar_steps, (int)bv, LV_ANIM_OFF);
+  }
+
+  /* 更新右侧欧拉角显示 */
+  if(lbl_pitch) {
+    char b[32];
+    snprintf(b, sizeof(b), "P: %.1f°", (double)c.pitch_deg);
+    lv_label_set_text(lbl_pitch, b);
+  }
+  if(lbl_roll) {
+    char b[32];
+    snprintf(b, sizeof(b), "R: %.1f°", (double)c.roll_deg);
+    lv_label_set_text(lbl_roll, b);
+  }
+  if(lbl_yaw) {
+    char b[32];
+    snprintf(b, sizeof(b), "Y: %.1f°", (double)c.yaw_deg);
+    lv_label_set_text(lbl_yaw, b);
+  }
 }
 
 
@@ -1079,15 +1367,21 @@ void myui_init(void)
   lv_label_set_text_fmt(lbl_spo2, "SpO2: %u%%", SENSOR_SPO2_INIT);
   lv_obj_set_style_text_font(lbl_spo2, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(lbl_spo2, lv_color_white(), 0);
-  lbl_temp = lv_label_create(cont_right);
-  lv_label_set_text_fmt(lbl_temp, "T: %d°C", SENSOR_TEMP_INIT);
-  lv_obj_set_style_text_font(lbl_temp, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl_temp, lv_color_white(), 0);
+  /* 温湿度在底部圆形模块展示，右侧改为显示陀螺仪欧拉角（Pitch/Roll/Yaw） */
+  lbl_pitch = lv_label_create(cont_right);
+  lv_label_set_text_fmt(lbl_pitch, "P: %.1f°", 0.0f);
+  lv_obj_set_style_text_font(lbl_pitch, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl_pitch, lv_color_white(), 0);
 
-  lbl_hum = lv_label_create(cont_right);
-  lv_label_set_text_fmt(lbl_hum, "H: %d%%", SENSOR_HUMIDITY_INIT);
-  lv_obj_set_style_text_font(lbl_hum, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(lbl_hum, lv_color_white(), 0);
+  lbl_roll = lv_label_create(cont_right);
+  lv_label_set_text_fmt(lbl_roll, "R: %.1f°", 0.0f);
+  lv_obj_set_style_text_font(lbl_roll, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl_roll, lv_color_white(), 0);
+
+  lbl_yaw = lv_label_create(cont_right);
+  lv_label_set_text_fmt(lbl_yaw, "Y: %.1f°", 0.0f);
+  lv_obj_set_style_text_font(lbl_yaw, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(lbl_yaw, lv_color_white(), 0);
 
   lbl_alt = lv_label_create(cont_right);
   {
@@ -1146,6 +1440,9 @@ void myui_init(void)
   /* 注册 UI 温湿度观察者：只缓存温湿度值，不直接操作 LVGL */
   (void)myui_temp_hum_register_observer(myui_ui_temphum_observer, NULL);
 
+  /* 注册 UI 步数观察者：只缓存步数值，不直接操作 LVGL */
+  (void)myui_steps_register_observer(myui_ui_steps_observer, NULL);
+
   /* 100Hz 刷新定时器：在 LVGL 线程里把最新海拔刷到 label */
   if(!s_altitude_100hz_timer) {
     s_altitude_100hz_timer = lv_timer_create(myui_altitude_100hz_timer_cb, 10, NULL);
@@ -1154,194 +1451,9 @@ void myui_init(void)
   if(!s_temphum_100hz_timer) {
     s_temphum_100hz_timer = lv_timer_create(myui_temphum_100hz_timer_cb, 10, NULL);
   }
-
-}
-
-
-
-
-
-// ----------------------------
-// 海拔观察者实现
-// ----------------------------
-
-bool myui_altitude_register_observer(myui_altitude_observer_cb_t cb, void * user_data)
-{
-  if(!cb) return false;
-
-  /* 若已存在则视为成功 */
-  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
-    if(s_altitude_observers[i].cb == cb && s_altitude_observers[i].user_data == user_data) {
-      return true;
-    }
+  /* 步数 100Hz 刷新定时器 */
+  if(!s_steps_100hz_timer) {
+    s_steps_100hz_timer = lv_timer_create(myui_steps_100hz_timer_cb, 10, NULL);
   }
 
-  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
-    if(s_altitude_observers[i].cb == NULL) {
-      s_altitude_observers[i].cb = cb;
-      s_altitude_observers[i].user_data = user_data;
-      return true;
-    }
-  }
-  return false;
-}
-
-void myui_altitude_unregister_observer(myui_altitude_observer_cb_t cb, void * user_data)
-{
-  if(!cb) return;
-  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
-    if(s_altitude_observers[i].cb == cb && s_altitude_observers[i].user_data == user_data) {
-      s_altitude_observers[i].cb = NULL;
-      s_altitude_observers[i].user_data = NULL;
-    }
-  }
-}
-
-void myui_altitude_publish(float altitude_m)
-{
-  for(uint32_t i = 0; i < MYUI_ALTITUDE_OBSERVER_MAX; i++) {
-    if(s_altitude_observers[i].cb) {
-      s_altitude_observers[i].cb(altitude_m, s_altitude_observers[i].user_data);
-    }
-  }
-}
-
-void myui_set_altitude_m(float altitude_m)
-{
-  myui_altitude_publish(altitude_m);
-}
-
-static void myui_ui_altitude_observer(float altitude_m, void * user_data)
-{
-  LV_UNUSED(user_data);
-  s_altitude_latest_m = altitude_m;
-  s_altitude_dirty = true;
-}
-
-static void myui_altitude_100hz_timer_cb(lv_timer_t * t)
-{
-  LV_UNUSED(t);
-
-  if(!lbl_alt) return;
-  if(!s_altitude_dirty) return;
-
-  float v = s_altitude_latest_m;
-  s_altitude_dirty = false;
-  char buf[32];
-  snprintf(buf, sizeof(buf), "Alt: %.1fm", (double)v);
-  lv_label_set_text(lbl_alt, buf);
-}
-
-
-// ----------------------------
-// 温湿度观察者实现
-// ----------------------------
-
-bool myui_temp_hum_register_observer(myui_temp_hum_observer_cb_t cb, void * user_data)
-{
-  if(!cb) return false;
-
-  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
-    if(s_temphum_observers[i].cb == cb && s_temphum_observers[i].user_data == user_data) {
-      return true;
-    }
-  }
-
-  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
-    if(s_temphum_observers[i].cb == NULL) {
-      s_temphum_observers[i].cb = cb;
-      s_temphum_observers[i].user_data = user_data;
-      return true;
-    }
-  }
-  return false;
-}
-
-void myui_temp_hum_unregister_observer(myui_temp_hum_observer_cb_t cb, void * user_data)
-{
-  if(!cb) return;
-  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
-    if(s_temphum_observers[i].cb == cb && s_temphum_observers[i].user_data == user_data) {
-      s_temphum_observers[i].cb = NULL;
-      s_temphum_observers[i].user_data = NULL;
-    }
-  }
-}
-
-void myui_temp_hum_publish(float temp_c, float hum_pct)
-{
-  for(uint32_t i = 0; i < MYUI_TEMPHUM_OBSERVER_MAX; i++) {
-    if(s_temphum_observers[i].cb) {
-      s_temphum_observers[i].cb(temp_c, hum_pct, s_temphum_observers[i].user_data);
-    }
-  }
-}
-
-void myui_set_temp_hum(float temp_c, float hum_pct)
-{
-  myui_temp_hum_publish(temp_c, hum_pct);
-}
-
-static void myui_ui_temphum_observer(float temp_c, float hum_pct, void * user_data)
-{
-  LV_UNUSED(user_data);
-  s_temp_latest_c = temp_c;
-  s_hum_latest_pct = hum_pct;
-  s_temphum_dirty = true;
-}
-
-static void myui_temphum_100hz_timer_cb(lv_timer_t * t)
-{
-  LV_UNUSED(t);
-
-  if(!lbl_temp && !lbl_hum) return;
-  if(!s_temphum_dirty) return;
-
-  float tc = s_temp_latest_c;
-  float hp = s_hum_latest_pct;
-  s_temphum_dirty = false;
-
-  char buf[64];
-  if(lbl_temp) {
-    snprintf(buf, sizeof(buf), "T: %.1f°C", (double)tc);
-    lv_label_set_text(lbl_temp, buf);
-  }
-  if(lbl_hum) {
-    snprintf(buf, sizeof(buf), "H: %.0f%%", (double)hp);
-    lv_label_set_text(lbl_hum, buf);
-  }
-  /* 更新底部圆形进度（arc） */
-  if(cont_temp_widget) {
-    lv_obj_t * arc = lv_obj_get_child(cont_temp_widget, 0);
-    if(arc) {
-      int p = (int)tc;
-      if(p < 0) p = 0; if(p > 100) p = 100;
-      lv_arc_set_value(arc, p);
-    }
-  }
-  if(cont_hum_widget) {
-    lv_obj_t * arc = lv_obj_get_child(cont_hum_widget, 0);
-    if(arc) {
-      int p = (int)hp;
-      if(p < 0) p = 0; if(p > 100) p = 100;
-      lv_arc_set_value(arc, p);
-    }
-  }
-  /* 同步更新底部圆形下方的数值标签（create_sensor_widget 中的 lbl_val） */
-  if(cont_temp_widget) {
-    lv_obj_t * val_lbl = lv_obj_get_child(cont_temp_widget, 1);
-    if(val_lbl) {
-      char tbuf[32];
-      snprintf(tbuf, sizeof(tbuf), "%.0f°", (double)tc);
-      lv_label_set_text(val_lbl, tbuf);
-    }
-  }
-  if(cont_hum_widget) {
-    lv_obj_t * val_lbl = lv_obj_get_child(cont_hum_widget, 1);
-    if(val_lbl) {
-      char hbuf[32];
-      snprintf(hbuf, sizeof(hbuf), "%.0f%%", (double)hp);
-      lv_label_set_text(val_lbl, hbuf);
-    }
-  }
 }
