@@ -40,6 +40,8 @@ extern "C" {
 extern osThreadId_t myLVGLTaskHandle;
 extern osThreadId_t myMS5611TaskHandle;
 extern osThreadId_t myDHT11TaskHandle;
+extern osThreadId_t myMPU6050TaskHandle;
+extern osMessageQueueId_t mympu6050QueueHandle;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

@@ -105,6 +105,11 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/APP/ms5611.c
     Core/APP/DHT11.c
     Core/APP/DHT11Task.c
+    Core/APP/mpu6050.c
+    Core/APP/mpu6050_fusion.c
+    Core/APP/MPU6050Task.c
+    Core/APP/mpuprintfTask.c
+    Core/APP/step_counter.c
     ${LVGL_SOURCES}
     Core/UI/myui.c
     Core/UI/Sen_notosanssc_16.c

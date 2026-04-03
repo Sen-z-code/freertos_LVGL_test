@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include "st7789.h"
 #include "MS5611Task.h"
+#include "i2c.h"
 
 /* USER CODE END Includes */
 
@@ -77,6 +78,25 @@ const osThreadAttr_t myDHT11Task_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for myMPU6050Task */
+osThreadId_t myMPU6050TaskHandle;
+const osThreadAttr_t myMPU6050Task_attributes = {
+  .name = "myMPU6050Task",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
+/* Definitions for mympuprintfTask */
+osThreadId_t mympuprintfTaskHandle;
+const osThreadAttr_t mympuprintfTask_attributes = {
+  .name = "mympuprintfTask",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for mympu6050Queue */
+osMessageQueueId_t mympu6050QueueHandle;
+const osMessageQueueAttr_t mympu6050Queue_attributes = {
+  .name = "mympu6050Queue"
+};
 /* Definitions for spi1Mutex */
 osMutexId_t spi1MutexHandle;
 const osMutexAttr_t spi1Mutex_attributes = {
@@ -92,6 +112,8 @@ void StartDefaultTask(void *argument);
 extern void StartLVGLTask(void *argument);
 extern void StartMS5611Task(void *argument);
 extern void StartDHT11Task(void *argument);
+extern void StartMPU6050Task(void *argument);
+extern void StartmpuprintfTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -120,6 +142,10 @@ void MX_FREERTOS_Init(void) {
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
+  /* Create the queue(s) */
+  /* creation of mympu6050Queue */
+  mympu6050QueueHandle = osMessageQueueNew (16, 32, &mympu6050Queue_attributes);
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -136,6 +162,12 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of myDHT11Task */
   myDHT11TaskHandle = osThreadNew(StartDHT11Task, NULL, &myDHT11Task_attributes);
+
+  /* creation of myMPU6050Task */
+  myMPU6050TaskHandle = osThreadNew(StartMPU6050Task, NULL, &myMPU6050Task_attributes);
+
+  /* creation of mympuprintfTask */
+  mympuprintfTaskHandle = osThreadNew(StartmpuprintfTask, NULL, &mympuprintfTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */

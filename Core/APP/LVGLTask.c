@@ -23,9 +23,7 @@ void StartLVGLTask(void *argument)
   lv_port_display_init(); // 初始化显示端口（绑定 ST7789 flush）
   lv_port_indev_init(); // 初始化输入端口（绑定触摸 read）
 
-  // 在这里创建你自己的页面/控件。
-  // 例如：lv_obj_t * scr = lv_screen_active();
-  // 然后把你的屏幕代码粘贴到此处。
+  // 在这里创建自己的页面/控件。
   myui_init();
 
   // 强制首帧立即刷新，便于确认初始化是否成功。
