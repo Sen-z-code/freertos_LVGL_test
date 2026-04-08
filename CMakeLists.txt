@@ -110,6 +110,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/APP/MPU6050Task.c
     Core/APP/mpuprintfTask.c
     Core/APP/step_counter.c
+    Core/APP/RTCTask.c
+    Core/APP/rtc_driver.c
     ${LVGL_SOURCES}
     Core/UI/myui.c
     Core/UI/Sen_notosanssc_16.c

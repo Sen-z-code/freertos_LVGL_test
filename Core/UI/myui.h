@@ -84,6 +84,25 @@ void myui_steps_publish(uint32_t steps, float pitch_deg, float roll_deg, float y
 void myui_set_steps(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg);
 
 
+// ============================
+// 日期/时间数据绑定（观察者模式）
+// ============================
+
+// 日期时间回调（年/月/日/时/分/秒）
+// 注意：回调可能在数据发布者线程/任务中被调用，请不要在回调里直接操作 LVGL 控件。
+typedef void (*myui_datetime_observer_cb_t)(int year, int month, int day, int hour, int minute, int second, void * user_data);
+
+// 注册/注销日期时间观察者
+bool myui_datetime_register_observer(myui_datetime_observer_cb_t cb, void * user_data);
+void myui_datetime_unregister_observer(myui_datetime_observer_cb_t cb, void * user_data);
+
+// 发布日期时间（通知所有观察者）
+void myui_datetime_publish(int year, int month, int day, int hour, int minute, int second);
+
+// 便捷设置接口（等价于 publish）
+void myui_set_datetime(int year, int month, int day, int hour, int minute, int second);
+
+
 
 
 #endif

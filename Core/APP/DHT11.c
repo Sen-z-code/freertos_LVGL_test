@@ -133,10 +133,30 @@ bool DHT11_Read(int *temperature_c, int *humidity)
 {
   uint8_t data[5] = {0};
   dht11_start();
-  if (dht11_wait_response() != 0) return false;
-  for (int i = 0; i < 5; i++) {
-    if (dht11_read_byte(&data[i]) != 0) return false;
+
+#ifdef FREERTOS
+  taskENTER_CRITICAL(); /* 保护微秒级采样，禁止任务切换 */
+#endif
+
+  if (dht11_wait_response() != 0) {
+#ifdef FREERTOS
+    taskEXIT_CRITICAL();
+#endif
+    return false;
   }
+
+  for (int i = 0; i < 5; i++) {
+    if (dht11_read_byte(&data[i]) != 0) {
+#ifdef FREERTOS
+      taskEXIT_CRITICAL();
+#endif
+      return false;
+    }
+  }
+
+#ifdef FREERTOS
+  taskEXIT_CRITICAL();
+#endif
   uint8_t sum = data[0] + data[1] + data[2] + data[3];
   if (sum != data[4]) return false;
   if (humidity) *humidity = data[0];

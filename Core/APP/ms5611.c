@@ -299,7 +299,7 @@ void Baro_Read_Pressure_Test(void)
 	D2 = Baro_Read_Data();
 	/* 5.���ù�ʽ�������յ���ѹ��ֵ��*/
 	m_Ms56xx.pressure = Baro_Cal_Alt(D1,D2);
-	printf("pressure is %lf mbar \r\n",m_Ms56xx.pressure/100.0);
+	// printf("pressure is %lf mbar \r\n",m_Ms56xx.pressure/100.0);
 }
 
 

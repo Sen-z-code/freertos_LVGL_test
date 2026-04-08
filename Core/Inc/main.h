@@ -42,6 +42,7 @@ extern osThreadId_t myMS5611TaskHandle;
 extern osThreadId_t myDHT11TaskHandle;
 extern osThreadId_t myMPU6050TaskHandle;
 extern osMessageQueueId_t mympu6050QueueHandle;
+extern osThreadId_t myRTCTaskHandle;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -79,6 +80,7 @@ void Error_Handler(void);
 #define LCD_BL_GPIO_Port GPIOD
 #define DHT11_DATA_Pin GPIO_PIN_8
 #define DHT11_DATA_GPIO_Port GPIOA
+
 
 /* USER CODE BEGIN Private defines */
 

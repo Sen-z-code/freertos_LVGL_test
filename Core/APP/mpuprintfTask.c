@@ -16,7 +16,7 @@ void StartmpuprintfTask(void *argument)
         osStatus_t st = osMessageQueueGet(mympu6050QueueHandle, &msg, NULL, osWaitForever);
         if (st == osOK) {
             // 打印来自采样任务的角度与步数（msg 已由采样任务填充）
-            printf("RPY=%.2f,%.2f,%.2f Steps=%lu\r\n", msg.roll, msg.pitch, msg.yaw, (unsigned long)msg.steps);
+            // printf("RPY=%.2f,%.2f,%.2f Steps=%lu\r\n", msg.roll, msg.pitch, msg.yaw, (unsigned long)msg.steps);
                 /* 保持 50~100ms 打印间隔以便收集 10-20Hz 的诊断日志 */
                 vTaskDelay(pdMS_TO_TICKS(100));
         }

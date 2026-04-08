@@ -5,12 +5,6 @@
 #include "step_counter.h"
 #include <math.h>
 
-// 配置参数（可按需调优）
-// STEP_MIN_INTERVAL_MS: 两次步之间的最短时间（ms），用于去抖，防止手臂震动重复计步
-// GRAVITY_TAU: 用于低通滤波估计重力分量的时间常数（s），越大响应越慢
-// SMOOTH_ALPHA: 包络平滑系数（越小包络越平滑，但响应更慢）
-// BASE_THRESH: 峰值检测的基础阈值（g），检测阈值为自适应阈值与该基线的组合
-// GYRO_AID_THRESH: 陀螺辅助阈值（°/s），当角速度超过此值时增强步的置信度
 static const uint32_t STEP_MIN_INTERVAL_MS = 300; // 最小步间隔（防抖）
 static const float GRAVITY_TAU = 0.5f; // 低通估计重力时间常数（s）
 static const float SMOOTH_ALPHA = 0.2f; // 峰值包络平滑系数
@@ -24,6 +18,8 @@ static float envelope_lp;     // 峰值包络平滑值
 static float adapt_thresh;    // 自适应阈值
 static uint32_t last_ts;
 
+// 初始化步数计数器
+// 作用：清零计数、重置滤波器状态与自适应阈值
 void StepCounter_Init(void)
 {
     step_count = 0;
@@ -34,29 +30,34 @@ void StepCounter_Init(void)
     last_ts = 0;
 }
 
-// 初始化步数计数器
-// 作用：清零计数、重置滤波器状态与自适应阈值
-// 在系统启动或重置步数时调用
-
-
+// 重置步数计数器
+// 作用：调用 Init 并清空历史状态
 void StepCounter_Reset(void)
 {
     StepCounter_Init();
 }
 
-// 重置步数计数器
-// 作用：调用 Init 并清空历史状态
-
-
+// 获取当前累计步数
+// 返回：累计步数
 uint32_t StepCounter_GetCount(void)
 {
     return step_count;
 }
 
-// 获取当前累计步数
-// 返回：累计步数（uint32_t）
-
-
+// 处理一次采样并检测步态峰值
+// 参数：
+//  - ax_g, ay_g, az_g : 加速度（单位 g）
+//  - gx_dps, gy_dps, gz_dps : 角速度（单位 °/s）
+//  - timestamp_ms : 当前时间戳，单位 ms（用于去抖/间隔判断）
+// 返回：若本次采样检测到步则返回 true 并累加计数
+// 算法要点：
+//  1. 用低通滤波估计加速度模长的重力分量 gravity_lp（自适应 dt）
+//  2. 计算高通分量 mag_hp = mag - gravity_lp（只考虑正向脉冲）
+//  3. 对 mag_hp 做包络平滑 envelope_lp，得到瞬时幅值估计
+//  4. 计算自适应基线 adapt_thresh 并设定检测阈值 detect_thresh
+//  5. 若 envelope_lp 超过阈值且与上次步时间间隔 > STEP_MIN_INTERVAL_MS，则判为候选步
+//  6. 使用陀螺幅值 gyro_mag 做辅助判断（若 gyro 大于阈值或包络明显大于阈值则确认步）
+//  7. 确认后累加步数并记录时间戳
 bool StepCounter_ProcessSample(float ax_g, float ay_g, float az_g,
                                float gx_dps, float gy_dps, float gz_dps,
                                uint32_t timestamp_ms)
@@ -110,18 +111,5 @@ bool StepCounter_ProcessSample(float ax_g, float ay_g, float az_g,
     return false;
 }
 
-// 处理一次采样并检测步态峰值
-// 参数：
-//  - ax_g, ay_g, az_g : 加速度（单位 g）
-//  - gx_dps, gy_dps, gz_dps : 角速度（单位 °/s）
-//  - timestamp_ms : 当前时间戳，单位 ms（用于去抖/间隔判断）
-// 返回：若本次采样检测到步则返回 true 并累加计数
-// 算法要点：
-//  1. 用低通滤波估计加速度模长的重力分量 gravity_lp（自适应 dt）
-//  2. 计算高通分量 mag_hp = mag - gravity_lp（只考虑正向脉冲）
-//  3. 对 mag_hp 做包络平滑 envelope_lp，得到瞬时幅值估计
-//  4. 计算自适应基线 adapt_thresh 并设定检测阈值 detect_thresh
-//  5. 若 envelope_lp 超过阈值且与上次步时间间隔 > STEP_MIN_INTERVAL_MS，则判为候选步
-//  6. 使用陀螺幅值 gyro_mag 做辅助判断（若 gyro 大于阈值或包络明显大于阈值则确认步）
-//  7. 确认后累加步数并记录时间戳
+
 

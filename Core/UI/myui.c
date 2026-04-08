@@ -152,13 +152,6 @@ void myui_set_altitude_m(float altitude_m)
   myui_altitude_publish(altitude_m);
 }
 
-static void myui_ui_altitude_observer(float altitude_m, void * user_data)
-{
-  LV_UNUSED(user_data);
-  s_altitude_latest_m = altitude_m;
-  s_altitude_dirty = true;
-}
-
 static void myui_altitude_100hz_timer_cb(lv_timer_t * t)
 {
   LV_UNUSED(t);
@@ -171,6 +164,14 @@ static void myui_altitude_100hz_timer_cb(lv_timer_t * t)
   char buf[32];
   snprintf(buf, sizeof(buf), "Alt: %.1fm", (double)v);
   lv_label_set_text(lbl_alt, buf);
+}
+
+static void myui_ui_altitude_observer(float altitude_m, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_altitude_latest_m = altitude_m;
+  /* 直接设置脏标志，由 LVGL 定时器周期合并更新 */
+  s_altitude_dirty = true;
 }
 
 // ============================
@@ -239,19 +240,10 @@ void myui_set_temp_hum(float temp_c, float hum_pct)
   myui_temp_hum_publish(temp_c, hum_pct);
 }
 
-static void myui_ui_temphum_observer(float temp_c, float hum_pct, void * user_data)
-{
-  LV_UNUSED(user_data);
-  s_temp_latest_c = temp_c;
-  s_hum_latest_pct = hum_pct;
-  s_temphum_dirty = true;
-}
-
 static void myui_temphum_100hz_timer_cb(lv_timer_t * t)
 {
   LV_UNUSED(t);
 
-  if(!lbl_temp && !lbl_hum) return;
   if(!s_temphum_dirty) return;
 
   float tc = s_temp_latest_c;
@@ -301,6 +293,148 @@ static void myui_temphum_100hz_timer_cb(lv_timer_t * t)
       lv_label_set_text(val_lbl, hbuf);
     }
   }
+}
+
+static void myui_ui_temphum_observer(float temp_c, float hum_pct, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_temp_latest_c = temp_c;
+  s_hum_latest_pct = hum_pct;
+  /* 直接设置脏标志，由 LVGL 定时器周期合并更新（不再使用 lv_async_call） */
+  s_temphum_dirty = true;
+}
+
+
+// ============================
+// 日期/时间数据绑定（观察者模式 + 1Hz 刷新）
+// ============================
+
+#define MYUI_DATETIME_OBSERVER_MAX 8
+
+typedef struct {
+  myui_datetime_observer_cb_t cb;
+  void * user_data;
+} myui_datetime_observer_slot_t;
+
+static myui_datetime_observer_slot_t s_datetime_observers[MYUI_DATETIME_OBSERVER_MAX];
+
+typedef struct {
+  int year;
+  int month;
+  int day;
+  int hour;
+  int minute;
+  int second;
+} myui_datetime_cache_t;
+
+static volatile myui_datetime_cache_t s_datetime_latest = {2026,1,1,0,0,0};
+static volatile bool s_datetime_dirty = true;
+static lv_timer_t *s_datetime_1hz_timer = NULL;
+
+static const char * myui_weekday_name(int y, int m, int d)
+{
+  /* Zeller's congruence */
+  if(m < 3) { m += 12; y -= 1; }
+  int K = y % 100;
+  int J = y / 100;
+  int q = d;
+  int h = (q + (13*(m+1))/5 + K + K/4 + J/4 + 5*J) % 7;
+  /* h: 0=Saturday,1=Sunday,... */
+  static const char *names[] = {"Sat","Sun","Mon","Tue","Wed","Thu","Fri"};
+  return names[h];
+}
+
+bool myui_datetime_register_observer(myui_datetime_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return false;
+  for(uint32_t i = 0; i < MYUI_DATETIME_OBSERVER_MAX; i++) {
+    if(s_datetime_observers[i].cb == cb && s_datetime_observers[i].user_data == user_data) return true;
+  }
+  for(uint32_t i = 0; i < MYUI_DATETIME_OBSERVER_MAX; i++) {
+    if(s_datetime_observers[i].cb == NULL) {
+      s_datetime_observers[i].cb = cb;
+      s_datetime_observers[i].user_data = user_data;
+      return true;
+    }
+  }
+  return false;
+}
+
+void myui_datetime_unregister_observer(myui_datetime_observer_cb_t cb, void * user_data)
+{
+  if(!cb) return;
+  for(uint32_t i = 0; i < MYUI_DATETIME_OBSERVER_MAX; i++) {
+    if(s_datetime_observers[i].cb == cb && s_datetime_observers[i].user_data == user_data) {
+      s_datetime_observers[i].cb = NULL;
+      s_datetime_observers[i].user_data = NULL;
+    }
+  }
+}
+
+void myui_datetime_publish(int year, int month, int day, int hour, int minute, int second)
+{
+  for(uint32_t i = 0; i < MYUI_DATETIME_OBSERVER_MAX; i++) {
+    if(s_datetime_observers[i].cb) {
+      s_datetime_observers[i].cb(year, month, day, hour, minute, second, s_datetime_observers[i].user_data);
+    }
+  }
+}
+
+void myui_set_datetime(int year, int month, int day, int hour, int minute, int second)
+{
+  myui_datetime_publish(year, month, day, hour, minute, second);
+}
+
+static void myui_datetime_1hz_timer_cb(lv_timer_t * t)
+{
+  LV_UNUSED(t);
+  if(!lbl_time && !lbl_date) return;
+  if(!s_datetime_dirty) return;
+
+  myui_datetime_cache_t c = s_datetime_latest;
+  s_datetime_dirty = false;
+
+  if(lbl_time) {
+    char tb[32];
+    snprintf(tb, sizeof(tb), "%02d:%02d:%02d", c.hour, c.minute, c.second);
+    lv_label_set_text(lbl_time, tb);
+  }
+  if(lbl_date) {
+    const char *wk = myui_weekday_name(c.year, c.month, c.day);
+    char db[64];
+    snprintf(db, sizeof(db), "%04d-%02d-%02d %s.", c.year, c.month, c.day, wk);
+    lv_label_set_text(lbl_date, db);
+  }
+
+  /* 若日历 screen 存在，则更新其显示日期 */
+  if(cal_screen) {
+    lv_obj_t *cal = lv_obj_get_child(cal_screen, 0);
+    if(cal) {
+      lv_calendar_set_today_date(cal, c.year, c.month, c.day);
+      lv_calendar_set_month_shown(cal, c.year, c.month);
+    }
+  }
+}
+
+/* 异步回调：在 LVGL 线程中立即刷新日期时间显示（供 lv_async_call 使用） */
+static void myui_async_update_datetime(void * arg)
+{
+  LV_UNUSED(arg);
+  s_datetime_dirty = true;
+  myui_datetime_1hz_timer_cb(NULL);
+}
+
+static void myui_ui_datetime_observer(int year, int month, int day, int hour, int minute, int second, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_datetime_latest.year = year;
+  s_datetime_latest.month = month;
+  s_datetime_latest.day = day;
+  s_datetime_latest.hour = hour;
+  s_datetime_latest.minute = minute;
+  s_datetime_latest.second = second;
+  /* 请求在 LVGL 线程中立即更新显示，避免等待下一个 1s 定时器触发造成延迟 */
+  lv_async_call(myui_async_update_datetime, NULL);
 }
 
 
@@ -374,16 +508,6 @@ void myui_set_steps(uint32_t steps, float pitch_deg, float roll_deg, float yaw_d
   myui_steps_publish(steps, pitch_deg, roll_deg, yaw_deg);
 }
 
-static void myui_ui_steps_observer(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg, void * user_data)
-{
-  LV_UNUSED(user_data);
-  s_steps_latest.steps = steps;
-  s_steps_latest.pitch_deg = pitch_deg;
-  s_steps_latest.roll_deg = roll_deg;
-  s_steps_latest.yaw_deg = yaw_deg;
-  s_steps_dirty = true;
-}
-
 static void myui_steps_100hz_timer_cb(lv_timer_t * t)
 {
   LV_UNUSED(t);
@@ -418,6 +542,17 @@ static void myui_steps_100hz_timer_cb(lv_timer_t * t)
     snprintf(b, sizeof(b), "Y: %.1f°", (double)c.yaw_deg);
     lv_label_set_text(lbl_yaw, b);
   }
+}
+
+static void myui_ui_steps_observer(uint32_t steps, float pitch_deg, float roll_deg, float yaw_deg, void * user_data)
+{
+  LV_UNUSED(user_data);
+  s_steps_latest.steps = steps;
+  s_steps_latest.pitch_deg = pitch_deg;
+  s_steps_latest.roll_deg = roll_deg;
+  s_steps_latest.yaw_deg = yaw_deg;
+  /* 直接设置脏标志，由 LVGL 定时器周期合并更新 */
+  s_steps_dirty = true;
 }
 
 
@@ -1367,7 +1502,7 @@ void myui_init(void)
   lv_label_set_text_fmt(lbl_spo2, "SpO2: %u%%", SENSOR_SPO2_INIT);
   lv_obj_set_style_text_font(lbl_spo2, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(lbl_spo2, lv_color_white(), 0);
-  /* 温湿度在底部圆形模块展示，右侧改为显示陀螺仪欧拉角（Pitch/Roll/Yaw） */
+
   lbl_pitch = lv_label_create(cont_right);
   lv_label_set_text_fmt(lbl_pitch, "P: %.1f°", 0.0f);
   lv_obj_set_style_text_font(lbl_pitch, &lv_font_montserrat_12, 0);
@@ -1443,17 +1578,24 @@ void myui_init(void)
   /* 注册 UI 步数观察者：只缓存步数值，不直接操作 LVGL */
   (void)myui_steps_register_observer(myui_ui_steps_observer, NULL);
 
+  /* 注册 UI 日期/时间观察者：只缓存时间值，不直接操作 LVGL */
+  (void)myui_datetime_register_observer(myui_ui_datetime_observer, NULL);
+
   /* 100Hz 刷新定时器：在 LVGL 线程里把最新海拔刷到 label */
   if(!s_altitude_100hz_timer) {
     s_altitude_100hz_timer = lv_timer_create(myui_altitude_100hz_timer_cb, 10, NULL);
   }
-
+  /* 温湿度 100Hz 刷新定时器 */
   if(!s_temphum_100hz_timer) {
     s_temphum_100hz_timer = lv_timer_create(myui_temphum_100hz_timer_cb, 10, NULL);
   }
   /* 步数 100Hz 刷新定时器 */
   if(!s_steps_100hz_timer) {
     s_steps_100hz_timer = lv_timer_create(myui_steps_100hz_timer_cb, 10, NULL);
+  }
+  /* 时间 1Hz 刷新定时器 */
+  if(!s_datetime_1hz_timer) {
+    s_datetime_1hz_timer = lv_timer_create(myui_datetime_1hz_timer_cb, 1000, NULL);
   }
 
 }

@@ -28,6 +28,7 @@
 #include "st7789.h"
 #include "MS5611Task.h"
 #include "i2c.h"
+#include "spi.h"
 
 /* USER CODE END Includes */
 
@@ -62,7 +63,7 @@ osThreadId_t myLVGLTaskHandle;
 const osThreadAttr_t myLVGLTask_attributes = {
   .name = "myLVGLTask",
   .stack_size = 2048 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityNormal5,
 };
 /* Definitions for myMS5611Task */
 osThreadId_t myMS5611TaskHandle;
@@ -92,6 +93,13 @@ const osThreadAttr_t mympuprintfTask_attributes = {
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for myRTCTask */
+osThreadId_t myRTCTaskHandle;
+const osThreadAttr_t myRTCTask_attributes = {
+  .name = "myRTCTask",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* Definitions for mympu6050Queue */
 osMessageQueueId_t mympu6050QueueHandle;
 const osMessageQueueAttr_t mympu6050Queue_attributes = {
@@ -114,6 +122,7 @@ extern void StartMS5611Task(void *argument);
 extern void StartDHT11Task(void *argument);
 extern void StartMPU6050Task(void *argument);
 extern void StartmpuprintfTask(void *argument);
+extern void StartRTCTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -168,6 +177,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of mympuprintfTask */
   mympuprintfTaskHandle = osThreadNew(StartmpuprintfTask, NULL, &mympuprintfTask_attributes);
+
+  /* creation of myRTCTask */
+  myRTCTaskHandle = osThreadNew(StartRTCTask, NULL, &myRTCTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */

@@ -31,6 +31,9 @@ extern osMutexId_t spi1MutexHandle;
 static uint16_t g_width = ST7789_WIDTH_PORTRAIT;
 static uint16_t g_height = ST7789_HEIGHT_PORTRAIT;
 
+
+/* debug flag removed */
+
 static void st7789_select(void);
 static void st7789_unselect(void);
 
@@ -53,6 +56,7 @@ static bool st7789_spi_tx(const uint8_t *data, uint16_t size)
   if ((data == NULL) || (size == 0U)) {
     return true;
   }
+
 
   // 若未初始化信号量，则先创建，保证不影响原有上电流程。
   if (g_spi1_tx_dma_sem == NULL) {
