@@ -81,7 +81,6 @@ void Error_Handler(void);
 #define DHT11_DATA_Pin GPIO_PIN_8
 #define DHT11_DATA_GPIO_Port GPIOA
 
-
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

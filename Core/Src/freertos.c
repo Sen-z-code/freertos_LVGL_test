@@ -63,7 +63,7 @@ osThreadId_t myLVGLTaskHandle;
 const osThreadAttr_t myLVGLTask_attributes = {
   .name = "myLVGLTask",
   .stack_size = 2048 * 4,
-  .priority = (osPriority_t) osPriorityNormal5,
+  .priority = (osPriority_t) osPriorityAboveNormal,
 };
 /* Definitions for myMS5611Task */
 osThreadId_t myMS5611TaskHandle;
@@ -77,14 +77,14 @@ osThreadId_t myDHT11TaskHandle;
 const osThreadAttr_t myDHT11Task_attributes = {
   .name = "myDHT11Task",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myMPU6050Task */
 osThreadId_t myMPU6050TaskHandle;
 const osThreadAttr_t myMPU6050Task_attributes = {
   .name = "myMPU6050Task",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityBelowNormal,
+  .priority = (osPriority_t) osPriorityHigh,
 };
 /* Definitions for mympuprintfTask */
 osThreadId_t mympuprintfTaskHandle;
@@ -98,7 +98,7 @@ osThreadId_t myRTCTaskHandle;
 const osThreadAttr_t myRTCTask_attributes = {
   .name = "myRTCTask",
   .stack_size = 256 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityBelowNormal,
 };
 /* Definitions for mympu6050Queue */
 osMessageQueueId_t mympu6050QueueHandle;

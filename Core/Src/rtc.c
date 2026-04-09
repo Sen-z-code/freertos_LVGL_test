@@ -21,6 +21,22 @@
 #include "rtc.h"
 
 /* USER CODE BEGIN 0 */
+/* USER CODE END 0 */
+
+/*
+ * 说明（中文）：
+ * - 本文件由 CubeMX 生成，负责 HAL 层 RTC 的初始化（MX_RTC_Init）和
+ *   与时钟源（LSE）相关的 MSP 初始化。默认生成代码会在首次初始化
+ *   时写入一个默认的日历时间（下文的 HAL_RTC_SetTime/HAL_RTC_SetDate）。
+ * - 为了避免每次固件重新生成或上电时用默认时间覆盖已保存的时间，
+ *   我们把实际的持久化/恢复逻辑放在非生成区的文件：
+ *   Core/APP/rtc_driver.c（不会被 CubeMX 覆盖）。
+ * - 这里的 USER CODE 区（尤其是 Check_RTC_BKUP）用于在 HAL 初始化后
+ *   检查备份寄存器（BKP_DR0 的魔数），若备份存在则直接返回，跳过
+ *   生成器写入默认时间的操作，从而保留 RTC/备份寄存器的一致性。
+ * - 重要提示：持久化依赖备份域（VBAT）与低速晶振 LSE，请确保硬件
+ *   已正确接线并且 VBAT 由电池（或超级电容）供电以实现掉电持续计时。
+ */
 
 /* USER CODE END 0 */
 
@@ -55,45 +71,31 @@ void MX_RTC_Init(void)
     Error_Handler();
   }
 
-  /* USER CODE BEGIN Check_RTC_BKUP */
-  /*
-   * 使用备份寄存器判断是否为首次初始化：
-   * - 若未写入魔数（RTC_BKP_MAGIC），则把 RTC 时间设置为默认值并写入魔数；
-   * - 若已写入魔数，则保留备份域中的时间（不覆盖）。
-   */
-#define RTC_BKP_MAGIC 0xA5A55A5AU
-  HAL_PWR_EnableBkUpAccess();
-  /* 读取备份寄存器 0 */
-  if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) != RTC_BKP_MAGIC)
-  {
-    /* 首次初始化：设置默认时间并写入魔数 */
-    sTime.Hours = 0x0;
-    sTime.Minutes = 0x0;
-    sTime.Seconds = 0x0;
-    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+    /* USER CODE BEGIN Check_RTC_BKUP */
+    /*
+     * 中文说明：
+     * - 真实的备份/恢复逻辑在 Core/APP/rtc_driver.c 中实现；该文件不会被
+     *   CubeMX 覆盖。为了避免下面生成的默认日历写入覆盖已有备份，
+     *   在此检查备份寄存器的魔数（BKP_DR0）。若发现魔数存在，说明
+     *   备份有效并已由 rtc_driver 管理，则直接返回，跳过后续生成的
+     *   HAL_RTC_SetTime/HAL_RTC_SetDate 调用。
+     * - 该检查位于 USER CODE 区，CubeMX 不会覆盖该段注释与逻辑，所
+     *   以可以安全地在这里放置保护性早退逻辑。
+     */
+    HAL_PWR_EnableBkUpAccess();
     {
-      Error_Handler();
+      const uint32_t RTC_BKP_MAGIC_LOCAL = 0xA5A55A5AU;
+      if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) == RTC_BKP_MAGIC_LOCAL)
+      {
+        /* 发现有效备份：跳过生成器的默认时间写入，保留现有 RTC/备份 */
+        return;
+      }
     }
-    sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-    sDate.Month = RTC_MONTH_JANUARY;
-    sDate.Date = 0x1;
-    sDate.Year = 0x0;
-
-    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
-    {
-      Error_Handler();
-    }
-
-    /* 写入备份魔数，表示已初始化 */
-    HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR0, RTC_BKP_MAGIC);
-  }
-  /* USER CODE END Check_RTC_BKUP */
+    /* USER CODE END Check_RTC_BKUP */
 
   /** Initialize RTC and set the Time and Date
   */
-  sTime.Hours = 0x0;
+  sTime.Hours = 0x21;
   sTime.Minutes = 0x0;
   sTime.Seconds = 0x0;
   sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
@@ -102,10 +104,10 @@ void MX_RTC_Init(void)
   {
     Error_Handler();
   }
-  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
-  sDate.Month = RTC_MONTH_JANUARY;
-  sDate.Date = 0x1;
-  sDate.Year = 0x0;
+  sDate.WeekDay = RTC_WEEKDAY_THURSDAY;
+  sDate.Month = RTC_MONTH_APRIL;
+  sDate.Date = 0x9;
+  sDate.Year = 0x26;
 
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
   {
