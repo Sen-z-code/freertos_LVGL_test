@@ -43,6 +43,7 @@ extern osThreadId_t myDHT11TaskHandle;
 extern osThreadId_t myMPU6050TaskHandle;
 extern osMessageQueueId_t mympu6050QueueHandle;
 extern osThreadId_t myRTCTaskHandle;
+extern osThreadId_t myTouchTaskHandle;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

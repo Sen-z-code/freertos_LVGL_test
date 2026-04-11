@@ -15,7 +15,7 @@ static void touchpad_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
 
   LV_UNUSED(indev);
 
-  if (XPT2046_ReadState(&ts) && ts.pressed) {
+  if (XPT2046_GetState(&ts) && ts.pressed) {
     last_x = (int32_t)ts.x;
     last_y = (int32_t)ts.y;
     data->state = LV_INDEV_STATE_PRESSED;

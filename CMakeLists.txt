@@ -112,6 +112,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/APP/step_counter.c
     Core/APP/RTCTask.c
     Core/APP/rtc_driver.c
+    Core/APP/touch_task.c
     ${LVGL_SOURCES}
     Core/UI/myui.c
     Core/UI/Sen_notosanssc_16.c

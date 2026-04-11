@@ -18,13 +18,6 @@ void StartRTCTask(void *argument)
 		/* 发布时间到 UI（LVGL 在其线程的 1Hz 定时器中刷新显示） */
 		int year_full = 2000 + (int)t.year;
 		myui_set_datetime(year_full, t.month, t.day, t.hours, t.minutes, t.seconds);
-		
-		/*
-		 * 产生一个可见的 400ms 高电平脉冲，便于通过 LED 区分 RTCTask 的 publish 与 LVGL 写标签的短脉冲。
-		 */
-		// HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
-		// vTaskDelay(pdMS_TO_TICKS(400));
-		// HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
 
 		vTaskDelayUntil(&xLastWakeTime, xFrequency);
 	}

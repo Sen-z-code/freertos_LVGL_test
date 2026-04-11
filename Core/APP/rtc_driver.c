@@ -1,7 +1,7 @@
 /*
  * rtc_driver.c
  *
- * RTC 持久化驱动（非生成区，放在 Core/APP 下，CubeMX 重新生成不会覆盖）
+ * RTC 持久化驱动
  * 功能：
  * - 提供对 HAL RTC 的包装，维护一个进程内缓存 `s_current_time`；
  * - 使用备份寄存器（BKP_DRx）保存年月日/时分秒以及一个魔数标记，
@@ -33,7 +33,7 @@ static volatile rtc_time_t s_current_time;
  * rtc_time_is_valid
  * 简单的字段范围校验：用于判断从 RTC 寄存器或备份寄存器读出的时间是否
  * 在可接受的范围内，避免把非法值写回备份或覆盖 RTC。
- * 返回：1 表示合法，0 表示非法（caller 应避免使用非法值）。
+ * 返回：1 表示合法，0 表示非法。
  */
 static int rtc_time_is_valid(const rtc_time_t *t)
 {

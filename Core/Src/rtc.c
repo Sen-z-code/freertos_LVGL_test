@@ -23,23 +23,6 @@
 /* USER CODE BEGIN 0 */
 /* USER CODE END 0 */
 
-/*
- * 说明（中文）：
- * - 本文件由 CubeMX 生成，负责 HAL 层 RTC 的初始化（MX_RTC_Init）和
- *   与时钟源（LSE）相关的 MSP 初始化。默认生成代码会在首次初始化
- *   时写入一个默认的日历时间（下文的 HAL_RTC_SetTime/HAL_RTC_SetDate）。
- * - 为了避免每次固件重新生成或上电时用默认时间覆盖已保存的时间，
- *   我们把实际的持久化/恢复逻辑放在非生成区的文件：
- *   Core/APP/rtc_driver.c（不会被 CubeMX 覆盖）。
- * - 这里的 USER CODE 区（尤其是 Check_RTC_BKUP）用于在 HAL 初始化后
- *   检查备份寄存器（BKP_DR0 的魔数），若备份存在则直接返回，跳过
- *   生成器写入默认时间的操作，从而保留 RTC/备份寄存器的一致性。
- * - 重要提示：持久化依赖备份域（VBAT）与低速晶振 LSE，请确保硬件
- *   已正确接线并且 VBAT 由电池（或超级电容）供电以实现掉电持续计时。
- */
-
-/* USER CODE END 0 */
-
 RTC_HandleTypeDef hrtc;
 
 /* RTC init function */
@@ -71,7 +54,7 @@ void MX_RTC_Init(void)
     Error_Handler();
   }
 
-    /* USER CODE BEGIN Check_RTC_BKUP */
+  /* USER CODE BEGIN Check_RTC_BKUP */
     /*
      * 中文说明：
      * - 真实的备份/恢复逻辑在 Core/APP/rtc_driver.c 中实现；该文件不会被
@@ -91,7 +74,7 @@ void MX_RTC_Init(void)
         return;
       }
     }
-    /* USER CODE END Check_RTC_BKUP */
+  /* USER CODE END Check_RTC_BKUP */
 
   /** Initialize RTC and set the Time and Date
   */

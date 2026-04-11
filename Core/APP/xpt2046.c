@@ -5,7 +5,7 @@
 
 #define XPT2046_CMD_READ_X 0xD0U
 #define XPT2046_CMD_READ_Y 0x90U
-#define XPT2046_SAMPLES    5U
+#define XPT2046_SAMPLES    3U
 #define XPT2046_STABLE_DELTA 25U
 
 /* 运行时校准参数：把原始 ADC 值线性映射到屏幕像素坐标。 */
@@ -13,8 +13,9 @@ static uint16_t g_x_min = XPT2046_RAW_X_MIN;
 static uint16_t g_x_max = XPT2046_RAW_X_MAX;
 static uint16_t g_y_min = XPT2046_RAW_Y_MIN;
 static uint16_t g_y_max = XPT2046_RAW_Y_MAX;
-static uint16_t g_last_x = (XPT2046_LCD_WIDTH / 2U);
-static uint16_t g_last_y = (XPT2046_LCD_HEIGHT / 2U);
+static volatile uint16_t g_last_x = (XPT2046_LCD_WIDTH / 2U);
+static volatile uint16_t g_last_y = (XPT2046_LCD_HEIGHT / 2U);
+static volatile bool g_last_pressed = false;
 
 /* 片选拉低，开始一次触摸 SPI 事务。 */
 static void xpt2046_select(void)
@@ -199,11 +200,12 @@ bool XPT2046_ReadState(XPT2046_State_t *state)
     return false;
   }
 
-  state->pressed = false;
-  state->x = g_last_x;
-  state->y = g_last_y;
+  state->pressed = (bool)g_last_pressed;
+  state->x = (uint16_t)g_last_x;
+  state->y = (uint16_t)g_last_y;
 
   if (!XPT2046_IsTouched()) {
+    g_last_pressed = false;
     return true;
   }
 
@@ -228,9 +230,21 @@ bool XPT2046_ReadState(XPT2046_State_t *state)
 
   g_last_x = x_final;
   g_last_y = y_final;
+  g_last_pressed = true;
   state->pressed = true;
   state->x = x_final;
   state->y = y_final;
+  return true;
+}
+
+bool XPT2046_GetState(XPT2046_State_t *state)
+{
+  if (state == NULL) {
+    return false;
+  }
+  state->pressed = (bool)g_last_pressed;
+  state->x = (uint16_t)g_last_x;
+  state->y = (uint16_t)g_last_y;
   return true;
 }
 

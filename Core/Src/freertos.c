@@ -100,6 +100,13 @@ const osThreadAttr_t myRTCTask_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
+/* Definitions for myTouchTask */
+osThreadId_t myTouchTaskHandle;
+const osThreadAttr_t myTouchTask_attributes = {
+  .name = "myTouchTask",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityAboveNormal,
+};
 /* Definitions for mympu6050Queue */
 osMessageQueueId_t mympu6050QueueHandle;
 const osMessageQueueAttr_t mympu6050Queue_attributes = {
@@ -123,6 +130,7 @@ extern void StartDHT11Task(void *argument);
 extern void StartMPU6050Task(void *argument);
 extern void StartmpuprintfTask(void *argument);
 extern void StartRTCTask(void *argument);
+extern void StartTouchTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -180,6 +188,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of myRTCTask */
   myRTCTaskHandle = osThreadNew(StartRTCTask, NULL, &myRTCTask_attributes);
+
+  /* creation of myTouchTask */
+  myTouchTaskHandle = osThreadNew(StartTouchTask, NULL, &myTouchTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
