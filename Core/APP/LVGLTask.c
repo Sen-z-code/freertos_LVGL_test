@@ -1,8 +1,15 @@
 #include "LVGLTask.h"
 
 #include "myui.h"
+#include "main.h"
 
 #define LVGL_LOOP_MS 5U
+
+// HAL tick 时间源回调：直接返回 HAL_GetTick 的值（单位 ms）。
+static uint64_t hal_time_provider(void)
+{
+  return (uint64_t)HAL_GetTick();
+}
 
 void StartLVGLTask(void *argument)
 {
@@ -22,6 +29,9 @@ void StartLVGLTask(void *argument)
   lv_init(); // 初始化 LVGL 内核
   lv_port_display_init(); // 初始化显示端口（绑定 ST7789 flush）
   lv_port_indev_init(); // 初始化输入端口（绑定触摸 read）
+
+  // 注册 HAL tick 时间源
+  myui_set_time_provider(hal_time_provider);
 
   // 在这里创建自己的页面/控件。
   myui_init();
