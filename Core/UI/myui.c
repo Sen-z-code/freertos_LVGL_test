@@ -59,6 +59,53 @@ static lv_obj_t *brightness_slider;
 static lv_obj_t *brightness_fill;
 static lv_obj_t *left_menu_panel;    // 左侧滑出面板
 
+/* -- 秒表相关全局 UI 变量与状态 -- */
+static lv_obj_t *stopwatch_screen;
+static lv_timer_t *stopwatch_timer;
+static lv_obj_t *lbl_stopwatch_time;
+static lv_obj_t *btn_stopwatch_start;
+static lv_obj_t *lbl_btn_stopwatch_start;
+static lv_obj_t *btn_stopwatch_record;
+static lv_obj_t *lbl_btn_stopwatch_record;
+static lv_obj_t *btn_stopwatch_back;
+static lv_obj_t *stopwatch_record_labels[3];
+
+static bool sw_running = false;
+static uint64_t sw_start_tick = 0;
+static uint64_t sw_elapsed_ms = 0;
+static uint64_t sw_records_ms[3] = {0,0,0};
+static int sw_record_count = 0;
+static bool sw_has_started = false;
+
+/* 时间提供者：可由上层通过 myui_set_time_provider 注册（返回毫秒） */
+static myui_time_provider_cb_t s_time_provider = NULL;
+
+void myui_set_time_provider(myui_time_provider_cb_t cb)
+{
+  s_time_provider = cb;
+}
+
+uint64_t myui_time_ms(void)
+{
+  if(s_time_provider) return s_time_provider();
+  return (uint64_t)lv_tick_get();
+}
+
+/* 打开/关闭秒表界面的延时定时器句柄（与其它 screen 保持一致的打开/关闭模式） */
+static lv_timer_t *open_stopwatch_timer = NULL;
+static lv_timer_t *close_stopwatch_timer = NULL;
+
+/* 秒表回调原型 */
+static void stopwatch_tick_cb(lv_timer_t * t);
+static void stopwatch_start_cb(lv_event_t * e);
+static void stopwatch_record_cb(lv_event_t * e);
+static void stopwatch_back_cb(lv_event_t * e);
+static void create_stopwatch_on_screen(lv_obj_t * scr);
+static void open_stopwatch_timer_cb(lv_timer_t * t);
+static void close_stopwatch_timer_cb(lv_timer_t * t);
+static void open_stopwatch_cb(lv_event_t * e);
+
+
 /* 全局左右滑切换主界面/左侧界面 */
 static void dropdown_open_anim(void);
 static void dropdown_close_anim(void);
@@ -962,6 +1009,9 @@ static void create_calculator_on_screen(lv_obj_t * scr)
   if(!scr) return;
   create_base_style(scr);
   lv_obj_set_style_pad_all(scr, 8, 0);
+  /* 禁用本 screen 的滚动与滚动条，避免右侧出现滚动条 */
+  lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
 
   /* 显示区：上行为表达式（小字体），下行为结果（大字体） */
   calc_expr_label = lv_label_create(scr);
@@ -1114,6 +1164,276 @@ static void open_calculator_cb(lv_event_t * e)
 }
 
 
+/* ======================
+ * StopWatch Screen 实现
+ * 支持：开始/暂停 切换、记录（最多 3 条）、在暂停时按记录结束计时、返回
+ * UI 在独立 screen 中创建，打开/关闭使用一次性定时器以避免事件重入
+ * ======================
+ */
+
+/*
+ * 秒表显示更新：根据当前运行状态计算已用毫秒并格式化为显示字符串
+ * 使用 LVGL 系统 tick（lv_tick_get / lv_tick_elaps），不依赖外部 RTC
+ */
+static void stopwatch_update_time_label(void)
+{
+  if(!lbl_stopwatch_time) return;
+  uint64_t now = myui_time_ms();
+  uint64_t elapsed = sw_elapsed_ms;
+  if(sw_running) elapsed += (now - sw_start_tick);
+
+  uint64_t total_cs = elapsed / 10; /* centiseconds */
+  uint32_t cs = (uint32_t)(total_cs % 100);
+  uint64_t total_s = total_cs / 100;
+  uint32_t s = (uint32_t)(total_s % 60);
+  uint32_t m = (uint32_t)((total_s / 60) % 60);
+  uint32_t h = (uint32_t)(total_s / 3600);
+
+  char buf[32];
+  if(h > 0) snprintf(buf, sizeof(buf), "%02u:%02u:%02u.%02u", (unsigned)h, (unsigned)m, (unsigned)s, (unsigned)cs);
+  else snprintf(buf, sizeof(buf), "%02u:%02u.%02u", (unsigned)m, (unsigned)s, (unsigned)cs);
+  lv_label_set_text(lbl_stopwatch_time, buf);
+}
+
+static void stopwatch_tick_cb(lv_timer_t * t)
+{
+  LV_UNUSED(t);
+  stopwatch_update_time_label();
+}
+
+static void stopwatch_start_cb(lv_event_t * e)
+{
+  LV_UNUSED(e);
+  if(!sw_running) {
+    /* 如果之前没有会话，则重置数据 */
+    if(!sw_has_started) {
+      sw_elapsed_ms = 0;
+      sw_record_count = 0;
+      for(int i = 0; i < 3; i++) if(stopwatch_record_labels[i]) lv_label_set_text(stopwatch_record_labels[i], "");
+    }
+    sw_start_tick = myui_time_ms();
+    sw_running = true;
+    sw_has_started = true;
+    if(lbl_btn_stopwatch_start) lv_label_set_text(lbl_btn_stopwatch_start, "暂停");
+    if(!stopwatch_timer) stopwatch_timer = lv_timer_create(stopwatch_tick_cb, 50, NULL);
+  } else {
+    /* 暂停 */
+    sw_elapsed_ms += (myui_time_ms() - sw_start_tick);
+    sw_running = false;
+    if(lbl_btn_stopwatch_start) lv_label_set_text(lbl_btn_stopwatch_start, "开始");
+    /* 停掉定时器以节省资源，恢复时会重建 */
+    if(stopwatch_timer) { lv_timer_del(stopwatch_timer); stopwatch_timer = NULL; }
+    stopwatch_update_time_label();
+  }
+}
+
+static void stopwatch_record_cb(lv_event_t * e)
+{
+  LV_UNUSED(e);
+  if(sw_running) {
+    if(sw_record_count >= 3) return; /* 达到上限 */
+    uint64_t elapsed = sw_elapsed_ms + (myui_time_ms() - sw_start_tick);
+    sw_records_ms[sw_record_count] = elapsed;
+    sw_record_count++;
+    if(stopwatch_record_labels[sw_record_count-1]) {
+      uint64_t total_cs = elapsed / 10;
+      uint32_t cs = (uint32_t)(total_cs % 100);
+      uint64_t total_s = total_cs / 100;
+      uint32_t s = (uint32_t)(total_s % 60);
+      uint32_t m = (uint32_t)((total_s / 60) % 60);
+      char buf[32];
+      snprintf(buf, sizeof(buf), "%d) %02u:%02u.%02u", sw_record_count, (unsigned)m, (unsigned)s, (unsigned)cs);
+      lv_label_set_text(stopwatch_record_labels[sw_record_count-1], buf);
+    }
+  } else {
+    /* 暂停时按记录，则结束计时（记录最终时间并停止） */
+    if(!sw_has_started) return;
+    if(sw_record_count < 3) {
+      uint32_t elapsed = sw_elapsed_ms;
+      sw_records_ms[sw_record_count] = elapsed;
+      if(stopwatch_record_labels[sw_record_count]) {
+        uint64_t total_cs = elapsed / 10;
+        uint32_t cs = (uint32_t)(total_cs % 100);
+        uint64_t total_s = total_cs / 100;
+        uint32_t s = (uint32_t)(total_s % 60);
+        uint32_t m = (uint32_t)((total_s / 60) % 60);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d) %02u:%02u.%02u", sw_record_count+1, (unsigned)m, (unsigned)s, (unsigned)cs);
+        lv_label_set_text(stopwatch_record_labels[sw_record_count], buf);
+      }
+      sw_record_count++;
+    }
+    /* 结束会话 */
+    sw_running = false;
+    sw_has_started = false;
+    if(stopwatch_timer) { lv_timer_del(stopwatch_timer); stopwatch_timer = NULL; }
+    if(lbl_btn_stopwatch_start) lv_label_set_text(lbl_btn_stopwatch_start, "开始");
+  }
+}
+
+static void close_stopwatch_timer_cb(lv_timer_t * t)
+{
+  if(!t) return;
+  if(t == close_stopwatch_timer) close_stopwatch_timer = NULL;
+  /* 恢复主 screen */
+  if(saved_main_scr) lv_scr_load(saved_main_scr);
+
+  /* 展开左侧面板（若存在） */
+  if(left_menu_panel) {
+    const lv_coord_t panel_w = lv_obj_get_width(left_menu_panel);
+    lv_coord_t cur_x = lv_obj_get_x(left_menu_panel);
+    lv_coord_t target_x = -10;
+    lv_anim_del(left_menu_panel, (lv_anim_exec_xcb_t)lv_obj_set_x);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, left_menu_panel);
+    if(cur_x < -panel_w) cur_x = -panel_w;
+    if(cur_x > 0) cur_x = 0;
+    lv_anim_set_values(&a, cur_x, target_x);
+    lv_anim_set_time(&a, 150);
+    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_x);
+    lv_anim_start(&a);
+  }
+
+  /* 删除秒表 screen 并清理 */
+  if(stopwatch_screen) {
+    lv_obj_del(stopwatch_screen);
+    stopwatch_screen = NULL;
+  }
+  /* 清理定时器 */
+  if(stopwatch_timer) { lv_timer_del(stopwatch_timer); stopwatch_timer = NULL; }
+
+  saved_main_scr = NULL;
+  lv_timer_del(t);
+}
+
+static void stopwatch_back_cb(lv_event_t * e)
+{
+  LV_UNUSED(e);
+  if(close_stopwatch_timer) return;
+  close_stopwatch_timer = lv_timer_create(close_stopwatch_timer_cb, 10, NULL);
+}
+
+static void open_stopwatch_timer_cb(lv_timer_t * t)
+{
+  if(!t) return;
+  if(t == open_stopwatch_timer) open_stopwatch_timer = NULL;
+
+  saved_main_scr = lv_scr_act();
+  if(!stopwatch_screen) {
+    stopwatch_screen = lv_obj_create(NULL);
+    create_stopwatch_on_screen(stopwatch_screen);
+  }
+  lv_scr_load(stopwatch_screen);
+
+  lv_timer_del(t);
+}
+
+static void open_stopwatch_cb(lv_event_t * e)
+{
+  LV_UNUSED(e);
+  if(stopwatch_screen && lv_scr_act() == stopwatch_screen) return;
+  if(open_stopwatch_timer) return;
+  open_stopwatch_timer = lv_timer_create(open_stopwatch_timer_cb, 10, NULL);
+}
+
+static void create_stopwatch_on_screen(lv_obj_t * scr)
+{
+  if(!scr) return;
+  create_base_style(scr);
+  lv_obj_set_style_pad_all(scr, 8, 0);
+
+  /* 顶部大时间（上移以避免与记录重叠） */
+  lbl_stopwatch_time = lv_label_create(scr);
+  lv_label_set_text(lbl_stopwatch_time, "00:00.00");
+  lv_obj_set_style_text_font(lbl_stopwatch_time, &lv_font_montserrat_28, 0);
+  lv_obj_align(lbl_stopwatch_time, LV_ALIGN_TOP_MID, 0, 36);
+
+  /*
+   * 记录区：放在按钮上方的透明容器中，避免被底部按钮遮挡
+   * 使用独立容器可以更容易控制与按钮之间的间距
+   */
+  const int btns_h = 64; /* 底部按钮容器高度（像素） */
+  lv_obj_t *records_cont = lv_obj_create(scr);
+  lv_obj_set_width(records_cont, LV_PCT(100));
+  lv_obj_set_height(records_cont, 72);
+  /* 将记录容器定位在底部按钮上方，间隔 12px */
+  lv_obj_align(records_cont, LV_ALIGN_BOTTOM_MID, 0, -(btns_h + 12));
+  lv_obj_set_style_bg_opa(records_cont, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(records_cont, 0, 0);
+  /* 禁用记录容器的滚动条 */
+  lv_obj_clear_flag(records_cont, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollbar_mode(records_cont, LV_SCROLLBAR_MODE_OFF);
+
+  for(int i = 0; i < 3; i++) {
+    stopwatch_record_labels[i] = lv_label_create(records_cont);
+    lv_label_set_text(stopwatch_record_labels[i], "");
+    lv_obj_align(stopwatch_record_labels[i], LV_ALIGN_TOP_MID, 0, i * 18);
+    lv_obj_set_style_text_font(stopwatch_record_labels[i], &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(stopwatch_record_labels[i], lv_color_white(), 0);
+  }
+
+  /* 底部按钮：按适当比例显示（居中、等间距、带间隙），不占满整个底部 */
+  lv_obj_t *btns = lv_obj_create(scr);
+  lv_obj_set_width(btns, LV_PCT(100));
+  lv_obj_set_height(btns, btns_h);
+  lv_obj_align(btns, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_flex_flow(btns, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_all(btns, 12, 0);
+  lv_obj_set_style_pad_gap(btns, 12, 0);
+  lv_obj_set_style_bg_color(btns, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(btns, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(btns, 0, LV_PART_MAIN);
+  lv_obj_set_style_outline_width(btns, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(btns, 0, LV_PART_MAIN);
+  /* 禁用底部按钮容器的滚动条 */
+  lv_obj_clear_flag(btns, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollbar_mode(btns, LV_SCROLLBAR_MODE_OFF);
+
+  /* 开始/暂停 按钮 */
+  btn_stopwatch_start = lv_btn_create(btns);
+  lv_obj_set_width(btn_stopwatch_start, LV_PCT(28));
+  lv_obj_set_height(btn_stopwatch_start, 48);
+  lv_obj_set_style_radius(btn_stopwatch_start, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(btn_stopwatch_start, lv_palette_main(LV_PALETTE_BLUE), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(btn_stopwatch_start, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(btn_stopwatch_start, 0, LV_PART_MAIN);
+  lbl_btn_stopwatch_start = lv_label_create(btn_stopwatch_start);
+  lv_label_set_text(lbl_btn_stopwatch_start, "开始");
+  lv_obj_set_style_text_color(lbl_btn_stopwatch_start, lv_color_white(), 0);
+  lv_obj_center(lbl_btn_stopwatch_start);
+  lv_obj_add_event_cb(btn_stopwatch_start, stopwatch_start_cb, LV_EVENT_CLICKED, NULL);
+
+  /* 记录 按钮 */
+  btn_stopwatch_record = lv_btn_create(btns);
+  lv_obj_set_width(btn_stopwatch_record, LV_PCT(28));
+  lv_obj_set_height(btn_stopwatch_record, 48);
+  lv_obj_set_style_radius(btn_stopwatch_record, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(btn_stopwatch_record, lv_palette_main(LV_PALETTE_BLUE), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(btn_stopwatch_record, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(btn_stopwatch_record, 0, LV_PART_MAIN);
+  lbl_btn_stopwatch_record = lv_label_create(btn_stopwatch_record);
+  lv_label_set_text(lbl_btn_stopwatch_record, "记录");
+  lv_obj_set_style_text_color(lbl_btn_stopwatch_record, lv_color_white(), 0);
+  lv_obj_center(lbl_btn_stopwatch_record);
+  lv_obj_add_event_cb(btn_stopwatch_record, stopwatch_record_cb, LV_EVENT_CLICKED, NULL);
+
+  /* 返回 按钮 */
+  btn_stopwatch_back = lv_btn_create(btns);
+  lv_obj_set_width(btn_stopwatch_back, LV_PCT(28));
+  lv_obj_set_height(btn_stopwatch_back, 48);
+  lv_obj_set_style_radius(btn_stopwatch_back, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(btn_stopwatch_back, lv_palette_main(LV_PALETTE_BLUE), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(btn_stopwatch_back, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(btn_stopwatch_back, 0, LV_PART_MAIN);
+  lv_obj_t *lblb = lv_label_create(btn_stopwatch_back);
+  lv_label_set_text(lblb, "返回");
+  lv_obj_set_style_text_color(lblb, lv_color_white(), 0);
+  lv_obj_center(lblb);
+  lv_obj_add_event_cb(btn_stopwatch_back, stopwatch_back_cb, LV_EVENT_CLICKED, NULL);
+}
+
+
 // 创建左侧滑出面板（应用列表风格）
 static void create_left_menu(lv_obj_t * scr)
 {
@@ -1173,6 +1493,9 @@ for(int i = 0; i < 4; i++) {
   } else if(i == 1) {
     /* Calculator */
     lv_obj_add_event_cb(btn, open_calculator_cb, LV_EVENT_CLICKED, NULL);
+  } else if(i == 2) {
+    /* Stopwatch */
+    lv_obj_add_event_cb(btn, open_stopwatch_cb, LV_EVENT_CLICKED, NULL);
   }
 }
 }

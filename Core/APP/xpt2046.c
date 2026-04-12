@@ -5,7 +5,7 @@
 
 #define XPT2046_CMD_READ_X 0xD0U
 #define XPT2046_CMD_READ_Y 0x90U
-#define XPT2046_SAMPLES    3U
+#define XPT2046_SAMPLES    1U
 #define XPT2046_STABLE_DELTA 25U
 
 /* 运行时校准参数：把原始 ADC 值线性映射到屏幕像素坐标。 */

@@ -102,7 +102,15 @@ void myui_datetime_publish(int year, int month, int day, int hour, int minute, i
 // 便捷设置接口（等价于 publish）
 void myui_set_datetime(int year, int month, int day, int hour, int minute, int second);
 
-
+/* 时间源抽象：允许上层提供精确的时间基准（单位毫秒）
+ * 说明：默认情况下 `myui` 使用 LVGL tick（lv_tick_get）作为时间源。
+ * 若目标板上 LVGL tick 不可靠，建议在板级实现并通过
+ * `myui_set_time_provider()` 注册一个返回系统时间（ms）的回调，
+ * 例如基于 RTC/TIM/DWT 的实现，这样秒表等功能会更精确。
+ */
+typedef uint64_t (*myui_time_provider_cb_t)(void);
+void myui_set_time_provider(myui_time_provider_cb_t cb);
+uint64_t myui_time_ms(void);
 
 
 #endif

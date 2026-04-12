@@ -28,11 +28,7 @@ void StartTouchTask(void *argument)
 {
   (void)argument;
 
-  // 若未在 MX_FREERTOS_Init 中创建，则在此处创建（安全的懒创建）。
-  if (g_touch_sem == NULL) {
-    const osSemaphoreAttr_t attr = {0};
-    g_touch_sem = osSemaphoreNew(1U, 0U, &attr);
-  }
+  // 信号量由 MX_FREERTOS_Init 提前创建，这里直接等待。
 
   for (;;) {
     if (g_touch_sem != NULL) {
@@ -41,7 +37,7 @@ void StartTouchTask(void *argument)
         // 触发后连续采样直到释放，采样间隔短以提升响应流畅性
         do {
           (void)XPT2046_ReadState(&st);
-          vTaskDelay(pdMS_TO_TICKS(8));
+          vTaskDelay(pdMS_TO_TICKS(4));
         } while (XPT2046_IsTouched());
       }
     } else {

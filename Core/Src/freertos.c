@@ -29,6 +29,7 @@
 #include "MS5611Task.h"
 #include "i2c.h"
 #include "spi.h"
+#include "touch_task.h"
 
 /* USER CODE END Includes */
 
@@ -153,6 +154,10 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
+  {
+    const osSemaphoreAttr_t touchSemAttr = {0};
+    g_touch_sem = osSemaphoreNew(1U, 0U, &touchSemAttr);
+  }
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
